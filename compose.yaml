@@ -1,0 +1,61 @@
+services:
+  api:
+    build:
+      context: .
+      args:
+        APP: api
+    environment:
+      HTTP_ADDR: :8080
+      RABBITMQ_URL: amqp://app:app@rabbitmq:5672/
+    ports:
+      - "8080:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      args:
+        APP: worker
+    environment:
+      MONGODB_URI: mongodb://root:root@mongo:27017/?authSource=admin
+      MONGODB_DATABASE: jobs
+      RABBITMQ_URL: amqp://app:app@rabbitmq:5672/
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: app
+      RABBITMQ_DEFAULT_PASS: app
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:8
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mongo-data:
