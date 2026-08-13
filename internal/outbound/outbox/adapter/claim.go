@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
 	errs "github.com/joaohgf/mjv-challenge/internal/core/error"
 	"github.com/joaohgf/mjv-challenge/internal/enum"
@@ -19,15 +20,18 @@ import (
 // Claim leases the oldest pending or expired event for one relay invocation.
 func (store *Store[D, M]) Claim(ctx context.Context) (*domain.OutboxEvent[D], error) {
 	now := time.Now().UTC()
+	leaseToken := uuid.NewString()
 	var event model.Event[M]
-	result := store.collection.FindOneAndUpdate(ctx, available(now), claimUpdate(now, store.lease), claimOptions())
+	operationContext, cancel := store.withTimeout(ctx)
+	defer cancel()
+	result := store.collection.FindOneAndUpdate(operationContext, available(now), claimUpdate(now, store.lease, leaseToken), claimOptions())
 	if err := result.Decode(&event); errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, errs.ErrNotFound
 	} else if err != nil {
 		return nil, fmt.Errorf("claiming outbox event: %w", err)
 	}
 	return &domain.OutboxEvent[D]{
-		ID: event.ID, Payload: store.mapper.From(event.Payload), Attempts: event.Attempts,
+		ID: event.ID, LeaseToken: event.LeaseToken, Payload: store.mapper.From(event.Payload), Attempts: event.Attempts,
 		Context: telemetry.ExtractContext(ctx, event.TraceContext),
 	}, nil
 }
@@ -39,8 +43,8 @@ func available(now time.Time) bson.M {
 	}}
 }
 
-func claimUpdate(now time.Time, lease time.Duration) bson.M {
-	return bson.M{"$set": bson.M{"status": enum.OutboxProcessing, "locked_until": now.Add(lease), "updated_at": now}, "$inc": bson.M{"attempts": 1}}
+func claimUpdate(now time.Time, lease time.Duration, leaseToken string) bson.M {
+	return bson.M{"$set": bson.M{"status": enum.OutboxProcessing, "locked_until": now.Add(lease), "lease_token": leaseToken, "updated_at": now}, "$inc": bson.M{"attempts": 1}}
 }
 
 func claimOptions() *options.FindOneAndUpdateOptions {

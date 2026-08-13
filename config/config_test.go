@@ -58,12 +58,12 @@ func TestValueUsesFallbackForEmptyEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadDatabaseUsesConfiguredSaveTimeout(t *testing.T) {
-	t.Setenv("MONGODB_SAVE_TIMEOUT", "3s")
+func TestLoadDatabaseUsesConfiguredOperationTimeout(t *testing.T) {
+	t.Setenv("MONGODB_OPERATION_TIMEOUT", "3s")
 	t.Setenv("MONGO_OUTBOX_COLLECTION_NAME", "events")
 
 	database := LoadDatabase()
-	if database.SaveTimeout != 3*time.Second || database.OutboxCollectionName != "events" {
+	if database.OperationTimeout != 3*time.Second || database.OutboxCollectionName != "events" {
 		t.Fatalf("expected configured database settings, got %#v", database)
 	}
 }

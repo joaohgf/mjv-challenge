@@ -41,7 +41,7 @@ services:
     ports:
       - "16686:16686"
     volumes:
-      - ./observability/jaeger-ui.json:/etc/jaeger/ui.json:ro
+      - ./infra/observability/jaeger-ui.json:/etc/jaeger/ui.json:ro
     depends_on:
       prometheus:
         condition: service_started
@@ -51,7 +51,7 @@ services:
     image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.158.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
-      - ./observability/otel-collector.yml:/etc/otelcol/config.yaml:ro
+      - ./infra/observability/otel-collector.yml:/etc/otelcol/config.yaml:ro
     depends_on:
       jaeger:
         condition: service_started
@@ -63,7 +63,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
   # Mongo Express is a development-only UI for MongoDB documents.
   mongo-express:

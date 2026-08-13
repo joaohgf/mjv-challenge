@@ -15,9 +15,9 @@ type (
 	Outbox[D any] interface {
 		Enqueue(context.Context, D) error
 		Claim(context.Context) (*domain.OutboxEvent[D], error)
-		MarkPublished(context.Context, string) error
-		MarkDeadLettered(context.Context, string) error
-		Release(context.Context, string) error
+		MarkPublished(context.Context, string, string) error
+		MarkDeadLettered(context.Context, string, string) error
+		Release(context.Context, string, string) error
 	}
 	// Dispatcher publishes at most one available outbox event.
 	Dispatcher interface {

@@ -20,7 +20,7 @@ func (repository *Repository[M]) Create(ctx context.Context, model M) (modelResu
 	if model.GetID() == "" {
 		return model, fmt.Errorf("creating mongo document: identifier is required")
 	}
-	ctx, cancel := repository.withSaveTimeout(ctx)
+	ctx, cancel := repository.WithOperationTimeout(ctx)
 	defer cancel()
 	_, err = repository.collection().InsertOne(ctx, model)
 	if err != nil {
@@ -38,6 +38,8 @@ func (repository *Repository[M]) Update(ctx context.Context, model M) (modelResu
 	if model.GetID() == "" {
 		return model, fmt.Errorf("updating mongo document: identifier is required")
 	}
+	ctx, cancel := repository.WithOperationTimeout(ctx)
+	defer cancel()
 	updateResult, err := repository.collection().ReplaceOne(ctx, repository.filter(model.GetID()), model)
 	if err != nil {
 		return model, fmt.Errorf("update mongo document: %w", err)
@@ -54,6 +56,8 @@ func (repository *Repository[M]) Get(ctx context.Context, id string) (modelResul
 	defer func() {
 		telemetry.End(span, err)
 	}()
+	ctx, cancel := repository.WithOperationTimeout(ctx)
+	defer cancel()
 	var model M
 	err = repository.collection().FindOne(ctx, repository.filter(id)).Decode(&model)
 	if errors.Is(err, mongo.ErrNoDocuments) {

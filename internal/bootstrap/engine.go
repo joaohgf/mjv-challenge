@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -20,7 +21,7 @@ func NewEngine(
 	engine := gin.New()
 	engine.Use(gin.Recovery())
 	engine.Use(telemetry.GinMiddleware())
-	engine.GET("/health", health)
+	engine.GET("/health", health(mongoHealth(mongo)))
 	engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	if mongo != nil {
 		buildOrder(engine, mongo, settings)
@@ -28,7 +29,21 @@ func NewEngine(
 	return engine
 }
 
-// health returns no content to indicate that the HTTP process is reachable.
-func health(context *gin.Context) {
-	context.Status(http.StatusNoContent)
+// mongoHealth supplies the database probe used by the API readiness endpoint.
+func mongoHealth(mongo *mongoadapter.Repository[*repositorymodel.Order]) func(context.Context) error {
+	if mongo == nil {
+		return nil
+	}
+	return mongo.Ping
+}
+
+// health reports readiness only while the database accepts requests.
+func health(check func(context.Context) error) gin.HandlerFunc {
+	return func(request *gin.Context) {
+		if check == nil || check(request.Request.Context()) != nil {
+			request.Status(http.StatusServiceUnavailable)
+			return
+		}
+		request.Status(http.StatusNoContent)
+	}
 }

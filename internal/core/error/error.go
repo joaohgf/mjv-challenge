@@ -8,6 +8,8 @@ import (
 var (
 	// ErrNotFound identifies a requested resource that does not exist in storage.
 	ErrNotFound = errors.New("resource not found")
+	// ErrLeaseLost identifies an operation attempted without the current outbox lease.
+	ErrLeaseLost = errors.New("outbox lease lost")
 )
 
 type (

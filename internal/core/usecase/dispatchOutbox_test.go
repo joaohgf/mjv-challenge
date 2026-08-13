@@ -11,11 +11,15 @@ import (
 
 type (
 	outboxStub struct {
-		event        *domain.OutboxEvent[string]
-		claimErr     error
-		released     string
-		published    string
-		deadLettered string
+		event           *domain.OutboxEvent[string]
+		claimErr        error
+		released        string
+		releaseToken    string
+		published       string
+		publishToken    string
+		publishErr      error
+		deadLettered    string
+		deadLetterToken string
 	}
 	publisherStub struct {
 		message string
@@ -31,18 +35,21 @@ func (stub *outboxStub) Claim(context.Context) (*domain.OutboxEvent[string], err
 	return stub.event, stub.claimErr
 }
 
-func (stub *outboxStub) MarkPublished(_ context.Context, id string) error {
+func (stub *outboxStub) MarkPublished(_ context.Context, id, leaseToken string) error {
 	stub.published = id
-	return nil
+	stub.publishToken = leaseToken
+	return stub.publishErr
 }
 
-func (stub *outboxStub) MarkDeadLettered(_ context.Context, id string) error {
+func (stub *outboxStub) MarkDeadLettered(_ context.Context, id, leaseToken string) error {
 	stub.deadLettered = id
+	stub.deadLetterToken = leaseToken
 	return nil
 }
 
-func (stub *outboxStub) Release(_ context.Context, id string) error {
+func (stub *outboxStub) Release(_ context.Context, id, leaseToken string) error {
 	stub.released = id
+	stub.releaseToken = leaseToken
 	return nil
 }
 
@@ -61,7 +68,7 @@ func (stub *publisherStub) DeadLetter(ctx context.Context, message string, cause
 
 func TestDispatchOutboxUsesRestoredEventContext(t *testing.T) {
 	restored := context.WithValue(context.Background(), "trace", "request-1")
-	outbox := &outboxStub{event: &domain.OutboxEvent[string]{Payload: "order-1", Context: restored}}
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", LeaseToken: "lease-1", Payload: "order-1", Context: restored}}
 	publisher := new(publisherStub)
 
 	_, err := NewDispatchOutbox(outbox, publisher, publisher, 5).Dispatch(context.Background())
@@ -72,23 +79,35 @@ func TestDispatchOutboxUsesRestoredEventContext(t *testing.T) {
 }
 
 func TestDispatchOutboxPublishesAndMarksClaimedEvent(t *testing.T) {
-	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1"}}
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", LeaseToken: "lease-1", Payload: "order-1"}}
 	publisher := new(publisherStub)
 
 	dispatched, err := NewDispatchOutbox(outbox, publisher, publisher, 5).Dispatch(context.Background())
 
-	if err != nil || !dispatched || publisher.message != "order-1" || outbox.published != "event-1" {
+	if err != nil || !dispatched || publisher.message != "order-1" || outbox.published != "event-1" || outbox.publishToken != "lease-1" {
 		t.Fatalf("expected confirmed event dispatch, got dispatched=%t err=%v", dispatched, err)
 	}
 }
 
+func TestDispatchOutboxReportsLeaseLossAfterPublication(t *testing.T) {
+	outbox := &outboxStub{
+		event:      &domain.OutboxEvent[string]{ID: "event-1", LeaseToken: "expired", Payload: "order-1"},
+		publishErr: errs.ErrLeaseLost,
+	}
+	dispatched, err := NewDispatchOutbox(outbox, new(publisherStub), new(publisherStub), 5).Dispatch(context.Background())
+
+	if !dispatched || !errors.Is(err, errs.ErrLeaseLost) {
+		t.Fatalf("expected reported lease loss, got dispatched=%t err=%v", dispatched, err)
+	}
+}
+
 func TestDispatchOutboxReleasesEventAfterPublicationFailure(t *testing.T) {
-	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1"}}
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", LeaseToken: "lease-1", Payload: "order-1"}}
 	publisher := &publisherStub{err: errors.New("broker unavailable")}
 
 	dispatched, err := NewDispatchOutbox(outbox, publisher, publisher, 5).Dispatch(context.Background())
 
-	if err == nil || !dispatched || outbox.released != "event-1" || outbox.published != "" {
+	if err == nil || !dispatched || outbox.released != "event-1" || outbox.releaseToken != "lease-1" || outbox.published != "" {
 		t.Fatalf("expected released event, got dispatched=%t err=%v outbox=%#v", dispatched, err, outbox)
 	}
 }
@@ -103,24 +122,24 @@ func TestDispatchOutboxDoesNothingWhenNoEventIsAvailable(t *testing.T) {
 }
 
 func TestDispatchOutboxParksEventAfterFiveFailedAttempts(t *testing.T) {
-	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1", Attempts: 5}}
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", LeaseToken: "lease-1", Payload: "order-1", Attempts: 5}}
 	publisher := &publisherStub{err: errors.New("broker unavailable")}
 	deadLetter := new(publisherStub)
 
 	dispatched, err := NewDispatchOutbox(outbox, publisher, deadLetter, 5).Dispatch(context.Background())
 
-	if err != nil || !dispatched || deadLetter.message != "order-1" || deadLetter.cause == nil || outbox.deadLettered != "event-1" || outbox.released != "" {
+	if err != nil || !dispatched || deadLetter.message != "order-1" || deadLetter.cause == nil || outbox.deadLettered != "event-1" || outbox.deadLetterToken != "lease-1" || outbox.released != "" {
 		t.Fatalf("expected parked event, got dispatched=%t err=%v outbox=%#v", dispatched, err, outbox)
 	}
 }
 
 func TestDispatchOutboxParksEventPastAttemptLimit(t *testing.T) {
-	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1", Attempts: 6}}
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", LeaseToken: "lease-1", Payload: "order-1", Attempts: 6}}
 	publisher, deadLetter := new(publisherStub), new(publisherStub)
 
 	dispatched, err := NewDispatchOutbox(outbox, publisher, deadLetter, 5).Dispatch(context.Background())
 
-	if err != nil || !dispatched || publisher.message != "" || deadLetter.cause == nil || outbox.deadLettered != "event-1" {
+	if err != nil || !dispatched || publisher.message != "" || deadLetter.cause == nil || outbox.deadLettered != "event-1" || outbox.deadLetterToken != "lease-1" {
 		t.Fatalf("expected event parked without publishing, got dispatched=%t err=%v outbox=%#v", dispatched, err, outbox)
 	}
 }

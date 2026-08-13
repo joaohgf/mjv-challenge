@@ -16,5 +16,6 @@ type Event[D any] struct {
 	CreatedAt    time.Time         `bson:"created_at"`
 	UpdatedAt    time.Time         `bson:"updated_at"`
 	LockedUntil  *time.Time        `bson:"locked_until,omitempty"`
+	LeaseToken   string            `bson:"lease_token,omitempty"`
 	PublishedAt  *time.Time        `bson:"published_at,omitempty"`
 }

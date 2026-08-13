@@ -2,24 +2,40 @@ package adapter
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/joaohgf/mjv-challenge/config"
-	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 	"github.com/rabbitmq/amqp091-go"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // Consumer decodes deliveries and coordinates manual acknowledgement.
 type Consumer[M any] struct {
 	*Client
+	// returns receives routing failures for mandatory dead-letter publications.
+	returns <-chan amqp091.Return
+	// deadLetterPublish enables the confirmed publication path to be unit tested.
+	deadLetterPublish func(context.Context, amqp091.Publishing) error
 }
 
 // NewConsumer creates a typed consumer for the configured main queue.
 func NewConsumer[M any](config *config.Queue) *Consumer[M] {
-	return &Consumer[M]{Client: NewClient(config)}
+	target := &Consumer[M]{Client: NewClient(config)}
+	target.deadLetterPublish = target.publishDeadLetter
+	return target
+}
+
+// Connect opens AMQP resources and enables confirms for dead-letter publishing.
+func (c *Consumer[M]) Connect(ctx context.Context) error {
+	if err := c.Client.Connect(ctx); err != nil {
+		return err
+	}
+	if err := enableConfirms(c.channel); err != nil {
+		_ = c.Client.Close()
+		return fmt.Errorf("enabling publisher confirms: %w", err)
+	}
+	c.returns = c.channel.NotifyReturn(make(chan amqp091.Return, 1))
+	return nil
 }
 
 // Consume processes one unacknowledged delivery at a time until context ends.
@@ -40,33 +56,4 @@ func (c *Consumer[M]) Consume(ctx context.Context, handle func(context.Context, 
 		return fmt.Errorf("context error: %w", err)
 	}
 	return errors.New("rabbitmq deliveries channel closed")
-}
-
-// process acknowledges success or parks a decoding or handling failure in the DLQ.
-func (c *Consumer[M]) process(ctx context.Context, delivery amqp091.Delivery, handle func(context.Context, M) error) (err error) {
-	ctx = telemetry.ExtractAMQPHeaders(ctx, delivery.Headers)
-	ctx, span := telemetry.StartSpan(ctx, "rabbitmq.consume", trace.SpanKindConsumer)
-	defer func() {
-		telemetry.End(span, err)
-	}()
-	source, err := c.decode(delivery.Body)
-	if err != nil {
-		return c.deadLetter(ctx, delivery, err)
-	}
-	if err := handle(ctx, source); err != nil {
-		return c.deadLetter(ctx, delivery, err)
-	}
-	if err := delivery.Ack(false); err != nil {
-		return fmt.Errorf("acknowledging message: %w", err)
-	}
-	return nil
-}
-
-// decode converts one JSON body to the generic consumer message type.
-func (c *Consumer[M]) decode(body []byte) (M, error) {
-	var message M
-	if err := json.Unmarshal(body, &message); err != nil {
-		return message, fmt.Errorf("decoding message: %w", err)
-	}
-	return message, nil
 }

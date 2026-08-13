@@ -15,14 +15,15 @@ import (
 
 // Store persists and leases mapped events in the MongoDB outbox collection.
 type Store[D, M any] struct {
-	collection *mongo.Collection
-	mapper     port.Mapper[D, M]
-	lease      time.Duration
+	collection  *mongo.Collection
+	mapper      port.Mapper[D, M]
+	lease       time.Duration
+	withTimeout func(context.Context) (context.Context, context.CancelFunc)
 }
 
 // NewStore creates a MongoDB outbox store with its event lease duration.
-func NewStore[D, M any](collection *mongo.Collection, mapper port.Mapper[D, M], lease time.Duration) *Store[D, M] {
-	return &Store[D, M]{collection: collection, mapper: mapper, lease: lease}
+func NewStore[D, M any](collection *mongo.Collection, mapper port.Mapper[D, M], lease time.Duration, withTimeout func(context.Context) (context.Context, context.CancelFunc)) *Store[D, M] {
+	return &Store[D, M]{collection: collection, mapper: mapper, lease: lease, withTimeout: withTimeout}
 }
 
 // Enqueue inserts a pending event in the same transaction as its aggregate.
@@ -32,7 +33,9 @@ func (store *Store[D, M]) Enqueue(ctx context.Context, payload D) error {
 		ID: uuid.NewString(), Payload: store.mapper.To(payload), Status: enum.OutboxPending,
 		TraceContext: telemetry.InjectContext(ctx, nil), CreatedAt: now, UpdatedAt: now,
 	}
-	if _, err := store.collection.InsertOne(ctx, event); err != nil {
+	operationContext, cancel := store.withTimeout(ctx)
+	defer cancel()
+	if _, err := store.collection.InsertOne(operationContext, event); err != nil {
 		return fmt.Errorf("inserting outbox event: %w", err)
 	}
 	return nil

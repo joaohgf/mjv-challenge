@@ -52,3 +52,26 @@ func TestConsumerConsumesAndUpdatesOrder(t *testing.T) {
 		t.Fatal("expected consumer handler to update the order")
 	}
 }
+
+func TestConsumerRejectsIncompleteMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		message *dto.Message[*dto.Order]
+	}{
+		{name: "missing envelope"},
+		{name: "missing payload", message: new(dto.Message[*dto.Order])},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			updater := new(updaterStub)
+			handler := NewConsumer(new(consumerStub), &mapper.Order{}, updater)
+
+			if err := handler.update(context.Background(), test.message); err == nil {
+				t.Fatal("expected incomplete message error")
+			}
+			if updater.updated {
+				t.Fatal("expected mapper and use case to be skipped")
+			}
+		})
+	}
+}

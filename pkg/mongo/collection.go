@@ -11,6 +11,7 @@ func (repository *Repository[M]) collection() *mongo.Collection {
 }
 
 // Collection exposes a MongoDB collection for an infrastructure-specific adapter.
+// Callers must use WithOperationTimeout for every driver operation they execute.
 func (repository *Repository[M]) Collection(name string) *mongo.Collection {
 	return repository.client.Database(repository.config.MongoDatabase).Collection(name)
 }

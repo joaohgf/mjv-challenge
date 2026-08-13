@@ -40,9 +40,9 @@ func (dispatcher *DispatchOutbox[D]) Dispatch(ctx context.Context) (bool, error)
 		if event.Attempts == dispatcher.maxAttempts {
 			return true, dispatcher.deadLetterEvent(ctx, messageContext, event, err)
 		}
-		return true, dispatcher.release(ctx, event.ID, err)
+		return true, dispatcher.release(ctx, event, err)
 	}
-	if err := dispatcher.outbox.MarkPublished(ctx, event.ID); err != nil {
+	if err := dispatcher.outbox.MarkPublished(ctx, event.ID, event.LeaseToken); err != nil {
 		return true, fmt.Errorf("marking outbox event published: %w", err)
 	}
 	return true, nil
@@ -50,9 +50,9 @@ func (dispatcher *DispatchOutbox[D]) Dispatch(ctx context.Context) (bool, error)
 
 func (dispatcher *DispatchOutbox[D]) deadLetterEvent(ctx context.Context, eventContext context.Context, event *domain.OutboxEvent[D], cause error) error {
 	if err := dispatcher.deadLetter.DeadLetter(eventContext, event.Payload, cause); err != nil {
-		return dispatcher.release(ctx, event.ID, err)
+		return dispatcher.release(ctx, event, err)
 	}
-	if err := dispatcher.outbox.MarkDeadLettered(ctx, event.ID); err != nil {
+	if err := dispatcher.outbox.MarkDeadLettered(ctx, event.ID, event.LeaseToken); err != nil {
 		return fmt.Errorf("marking outbox event dead-lettered: %w", err)
 	}
 	return nil
@@ -70,8 +70,8 @@ func eventContext(fallback, restored context.Context) context.Context {
 	return fallback
 }
 
-func (dispatcher *DispatchOutbox[D]) release(ctx context.Context, id string, publishErr error) error {
-	if err := dispatcher.outbox.Release(ctx, id); err != nil {
+func (dispatcher *DispatchOutbox[D]) release(ctx context.Context, event *domain.OutboxEvent[D], publishErr error) error {
+	if err := dispatcher.outbox.Release(ctx, event.ID, event.LeaseToken); err != nil {
 		return errors.Join(fmt.Errorf("publishing outbox event: %w", publishErr), fmt.Errorf("releasing outbox event: %w", err))
 	}
 	return fmt.Errorf("publishing outbox event: %w", publishErr)

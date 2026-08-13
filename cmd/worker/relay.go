@@ -20,7 +20,7 @@ import (
 
 // startOutboxRelay launches durable outbox dispatching independently from queue consumption.
 func startOutboxRelay(ctx context.Context, mongo *mongoadapter.Repository[*repositorymodel.Order], settings config.Config) error {
-	outbox := outboxadapter.NewStore(mongo.Collection(settings.Database.OutboxCollectionName), &repositorymapper.Order{}, settings.Queue.OutboxLease)
+	outbox := outboxadapter.NewStore(mongo.Collection(settings.Database.OutboxCollectionName), &repositorymapper.Order{}, settings.Queue.OutboxLease, mongo.WithOperationTimeout)
 	publisher := rabbitadapter.NewPublisher[*publisherdto.Message[*publisherdto.Order]](settings.Queue)
 	if err := publisher.Connect(ctx); err != nil {
 		return fmt.Errorf("connecting outbox publisher: %w", err)

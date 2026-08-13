@@ -18,7 +18,7 @@ func (c *Consumer[M]) deadLetter(ctx context.Context, delivery amqp091.Delivery,
 		telemetry.End(span, err)
 	}()
 	message := toPublishing(ctx, delivery, cause)
-	if err := c.channel.PublishWithContext(ctx, "", c.config.DeadLetterName, false, false, message); err != nil {
+	if err := c.publishToDeadLetter(ctx, message); err != nil {
 		return fmt.Errorf("publishing dead-letter message: %w", err)
 	}
 	if err := delivery.Ack(false); err != nil {
@@ -28,7 +28,15 @@ func (c *Consumer[M]) deadLetter(ctx context.Context, delivery amqp091.Delivery,
 	return nil
 }
 
-// toPublishing copies the AMQP metadata and annotates the failure reason.
+// publishToDeadLetter uses the configured confirmed publisher for one failed delivery.
+func (c *Consumer[M]) publishToDeadLetter(ctx context.Context, message amqp091.Publishing) error {
+	if c.deadLetterPublish != nil {
+		return c.deadLetterPublish(ctx, message)
+	}
+	return c.publishDeadLetter(ctx, message)
+}
+
+// toPublishing preserves AMQP metadata, records the failure and makes the parking message durable.
 func toPublishing(ctx context.Context, delivery amqp091.Delivery, cause error) amqp091.Publishing {
 	headers := amqp091.Table{}
 	maps.Copy(headers, delivery.Headers)
@@ -36,7 +44,7 @@ func toPublishing(ctx context.Context, delivery amqp091.Delivery, cause error) a
 	headers = telemetry.InjectAMQPHeaders(ctx, headers)
 	return amqp091.Publishing{
 		Headers: headers, ContentType: delivery.ContentType, ContentEncoding: delivery.ContentEncoding,
-		DeliveryMode: delivery.DeliveryMode, Priority: delivery.Priority, CorrelationId: delivery.CorrelationId,
+		DeliveryMode: amqp091.Persistent, Priority: delivery.Priority, CorrelationId: delivery.CorrelationId,
 		ReplyTo: delivery.ReplyTo, Expiration: delivery.Expiration, MessageId: delivery.MessageId,
 		Timestamp: delivery.Timestamp, Type: delivery.Type, UserId: delivery.UserId, AppId: delivery.AppId,
 		Body: delivery.Body,

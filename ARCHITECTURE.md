@@ -16,8 +16,11 @@ flowchart LR
     Queue --> Worker["Worker Go"]
     Worker --> Mongo
     Worker -. falha .-> DLQ["RabbitMQ: orders.dlq"]
-    API -. traces opcionais .-> Jaeger["Jaeger"]
-    Worker -. traces opcionais .-> Jaeger
+    API -. traces opcionais .-> Collector["OpenTelemetry Collector"]
+    Worker -. traces opcionais .-> Collector
+    Collector --> Jaeger["Jaeger"]
+    Collector --> Prometheus["Prometheus"]
+    Jaeger -. consulta SPM .-> Prometheus
     Swagger["Swagger UI"] --> API
     MongoExpress["Mongo Express"] --> Mongo
 ```
@@ -27,12 +30,15 @@ flowchart LR
 O Compose base inicia API, worker, RabbitMQ, MongoDB e `mongo-init`.
 `mongo-init` configura o replica set de nó único `rs0` e cria os índices antes
 de API e worker iniciarem. Os volumes `mongo-data` e `mongo-config` preservam
-dados e a chave interna do MongoDB entre recriações.
+dados e a chave interna do MongoDB entre recriações. O volume `rabbitmq-data`
+preserva as filas duráveis e suas mensagens entre recriações do broker.
 
 API e worker aguardam a inicialização do replica set; o worker também aguarda
-o healthcheck do RabbitMQ. A API trata `SIGTERM` e `SIGINT`, deixa de aceitar
-conexões e aguarda até `HTTP_SHUTDOWN_TIMEOUT` (`10s`) pelas requisições em
-andamento. O Compose reserva 15 segundos antes de forçar seu encerramento.
+o healthcheck do RabbitMQ. O healthcheck da API chama `GET /health`, que só
+retorna `204` quando MongoDB responde ao ping; caso contrário retorna `503`.
+A API trata `SIGTERM` e `SIGINT`, deixa de aceitar conexões e aguarda até
+`HTTP_SHUTDOWN_TIMEOUT` (`10s`) pelas requisições em andamento. O Compose
+reserva 15 segundos antes de forçar seu encerramento.
 
 As interfaces de desenvolvimento são opt-in: Mongo Express, Jaeger e as portas
 locais de MongoDB e RabbitMQ são adicionados apenas por
@@ -52,8 +58,9 @@ internal/inbound/    handlers HTTP, consumer e relay do worker
 internal/outbound/   adapters, DTOs/models e mappers de Mongo/RabbitMQ/outbox
 pkg/mongo/           operação genérica do driver MongoDB
 pkg/rabbitmq/        operação genérica AMQP, consumer e DLQ
-observability/       configurações do Collector, Prometheus e UI do Jaeger
-rabbitmq/            definitions e configuração do broker
+infra/mongo/         inicialização do replica set e índices MongoDB
+infra/rabbitmq/      definitions e configuração do broker
+infra/observability/ configurações do Collector, Prometheus e UI do Jaeger
 docs/                documentação Swagger gerada
 ```
 
@@ -70,10 +77,11 @@ segundos e, após concluir, salva `PROCESSADO`. Cada transição atualiza
 
 A criação usa `InsertOne` e o índice único de `order_id`. As transições usam
 `ReplaceOne` sem `upsert`; uma mensagem reprocessada não pode criar outro
-documento. A transação de criação — sessão, pedido, outbox e commit — tem o
-timeout `MONGODB_SAVE_TIMEOUT` de cinco segundos.
+documento. Cada operação MongoDB — conexão, ping, leitura, escrita, transação
+e outbox — tem o timeout `MONGODB_OPERATION_TIMEOUT` de cinco segundos. Um
+contexto já mais restritivo continua sendo respeitado.
 
-Os índices estão em [mongo/init.js](mongo/init.js): índice único parcial de
+Os índices estão em [infra/mongo/init.js](infra/mongo/init.js): índice único parcial de
 `order_id` para compatibilidade com documentos legados, índice único de
 `event_id` e índices compostos para busca e recuperação de leases da outbox.
 
@@ -85,10 +93,12 @@ sem um evento durável para seu processamento e não depende da disponibilidade
 imediata do RabbitMQ para responder `201`.
 
 O relay busca o evento pendente mais antigo, marca-o como `PROCESSING` com um
-lease de `OUTBOX_LEASE_DURATION` (`15s`) e tenta publicá-lo. Após o publisher
-confirm do RabbitMQ, registra `PUBLISHED`. Em uma falha, o evento retorna a
-`PENDING`; se o worker cair, o lease expira e outro relay pode retomá-lo. O
-intervalo entre tentativas é `OUTBOX_RETRY_INTERVAL` (`1s`).
+lease de `OUTBOX_LEASE_DURATION` (`15s`) e um `lease_token` exclusivo, e tenta
+publicá-lo. Após o publisher confirm do RabbitMQ, registra `PUBLISHED`. Cada
+transição exige o mesmo token: um relay atrasado não altera um evento que outro
+worker já reassumiu. Em uma falha, o evento retorna a `PENDING`; se o worker
+cair, o lease expira e outro relay pode retomá-lo. O intervalo entre tentativas
+é `OUTBOX_RETRY_INTERVAL` (`1s`).
 
 Após `OUTBOX_MAX_ATTEMPTS` falhas (cinco no Compose), o relay publica o payload
 original em `orders.dlq` com `x-failure-reason` e marca o evento como
@@ -102,7 +112,7 @@ pedido permanece seguro por atualizar o mesmo `order_id`, sem criar documento.
 ## Mensageria e DLQ
 
 As filas são declaradas antes da aplicação iniciar em
-[rabbitmq/definitions.json](rabbitmq/definitions.json): `orders` é a fila
+[infra/rabbitmq/definitions.json](infra/rabbitmq/definitions.json): `orders` é a fila
 durável de trabalho e `orders.dlq`, a fila durável de análise. Ambas usam o
 vhost `/` e o usuário `app` definido nas definitions.
 
@@ -113,11 +123,12 @@ confirmação manual e `prefetch=1`: após persistir as duas transições do ped
 envia `Ack` e remove a mensagem de `orders`.
 
 Mensagens inválidas ou que falham no caso de uso não recebem `Reject` ou
-`Nack`. O consumer republica o payload original em `orders.dlq`, preserva
-metadados AMQP, acrescenta `x-failure-reason` e somente então confirma a origem.
-É uma *parking queue* explícita, não consumida automaticamente. Se a
-republicação falhar, não há `Ack`; com o fechamento da conexão, a mensagem
-retorna para `orders`.
+`Nack`. O consumer republica o payload original de forma persistente e
+obrigatória em `orders.dlq`, preserva os demais metadados AMQP e acrescenta
+`x-failure-reason`. Ele só confirma a origem após o publisher confirm e a
+verificação de roteamento da DLQ. É uma *parking queue* explícita, não consumida
+automaticamente. Se a republicação falhar, não há `Ack`; com o fechamento da
+conexão, a mensagem retorna para `orders`.
 
 `orders` também possui dead-letter exchange como proteção de infraestrutura,
 mas o caminho normal é a republicação explícita.

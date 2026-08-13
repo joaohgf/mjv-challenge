@@ -22,7 +22,7 @@ type (
 		MongoDatabase        string
 		CollectionName       string
 		OutboxCollectionName string
-		SaveTimeout          time.Duration
+		OperationTimeout     time.Duration
 	}
 	// Queue identifies the RabbitMQ queues and broker connection.
 	Queue struct {
@@ -70,7 +70,7 @@ func LoadDatabase() *Database {
 	target.MongoDatabase = value("MONGODB_DATABASE", "orders")
 	target.CollectionName = value("MONGO_COLLECTION_NAME", "orders")
 	target.OutboxCollectionName = value("MONGO_OUTBOX_COLLECTION_NAME", "outbox")
-	target.SaveTimeout = duration("MONGODB_SAVE_TIMEOUT", 5*time.Second)
+	target.OperationTimeout = duration("MONGODB_OPERATION_TIMEOUT", 5*time.Second)
 	return target
 }
 

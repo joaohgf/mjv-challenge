@@ -37,6 +37,13 @@ dependências. As interfaces de desenvolvimento ficam no
 [docker-compose.interfaces.yml](docker-compose.interfaces.yml), não exigem
 arquivo `.env` e só são iniciadas quando solicitadas.
 
+As configurações externas do Compose ficam concentradas em `infra/`:
+`infra/mongo/` inicializa o replica set e seus índices,
+`infra/rabbitmq/` declara o broker e as filas, e
+`infra/observability/` configura Collector, Prometheus e a interface do Jaeger.
+Os arquivos Compose montam esses caminhos diretamente nos respectivos
+containers.
+
 | Serviço | Compose | Porta | Responsabilidade |
 | --- | --- | --- | --- |
 | `api` | base | `8080` | Expõe HTTP, Swagger e cria pedidos. |
@@ -94,7 +101,7 @@ do Compose para o host público, sem protocolo.
 | --- | --- | --- |
 | `POST /orders` | `201` | Cria o pedido e registra seu processamento assíncrono. |
 | `GET /orders/:id` | `200` / `404` | Busca um pedido pelo identificador. |
-| `GET /health` | `204` | Healthcheck leve da API. |
+| `GET /health` | `204` / `503` | Confirma que a API e o MongoDB estão disponíveis. |
 | `GET /swagger/index.html` | `200` | Interface Swagger. |
 
 Exemplo de criação:

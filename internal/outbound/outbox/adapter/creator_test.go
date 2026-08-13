@@ -40,9 +40,9 @@ func (stub *outboxStoreStub) Enqueue(_ context.Context, order *domain.Order) err
 func (stub *outboxStoreStub) Claim(context.Context) (*domain.OutboxEvent[*domain.Order], error) {
 	return nil, nil
 }
-func (stub *outboxStoreStub) MarkPublished(context.Context, string) error    { return nil }
-func (stub *outboxStoreStub) MarkDeadLettered(context.Context, string) error { return nil }
-func (stub *outboxStoreStub) Release(context.Context, string) error          { return nil }
+func (stub *outboxStoreStub) MarkPublished(context.Context, string, string) error    { return nil }
+func (stub *outboxStoreStub) MarkDeadLettered(context.Context, string, string) error { return nil }
+func (stub *outboxStoreStub) Release(context.Context, string, string) error          { return nil }
 
 func TestCreatorCreatesAndEnqueuesWithinTransaction(t *testing.T) {
 	orders := new(orderStoreStub)

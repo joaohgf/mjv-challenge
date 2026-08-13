@@ -9,7 +9,7 @@ import (
 
 // Transaction runs an operation atomically using the repository MongoDB client.
 func (repository *Repository[M]) Transaction(ctx context.Context, operation func(context.Context) error) error {
-	ctx, cancel := repository.withSaveTimeout(ctx)
+	ctx, cancel := repository.WithOperationTimeout(ctx)
 	defer cancel()
 	session, err := repository.client.StartSession()
 	if err != nil {
