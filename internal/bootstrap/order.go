@@ -24,7 +24,8 @@ func buildOrder(
 	outbox := outboxadapter.NewStore(mongo.Collection(settings.Database.OutboxCollectionName), &repositorymapper.Order{}, settings.Queue.OutboxLease, mongo.WithOperationTimeout)
 	creator := usecase.NewCreateOrder(outboxadapter.NewCreator(mongo, repository, outbox))
 	getter := usecase.NewGetOrder(repository)
-	orderHandler := httpadapter.NewOrderHandler(&httpmapper.Order{}, &httpmapper.Order{}, creator, getter)
+	mapper := &httpmapper.Order{}
+	orderHandler := httpadapter.NewOrderHandler(mapper, mapper, creator, getter)
 	router.POST("/orders", orderHandler.Create)
 	router.GET("/orders/:id", orderHandler.Get)
 }
