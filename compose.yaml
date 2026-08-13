@@ -1,4 +1,5 @@
 services:
+  # API persists the initial order and its durable outbox event.
   api:
     build:
       context: .
@@ -6,28 +7,48 @@ services:
         APP: api
     environment:
       HTTP_ADDR: :8080
-      RABBITMQ_URL: amqp://app:app@rabbitmq:5672/
+      SWAGGER_HOST: localhost:8080
+      MONGODB_URI: mongodb://root:root@mongo:27017/?authSource=admin&replicaSet=rs0
+      MONGODB_DATABASE: orders
+      MONGO_COLLECTION_NAME: orders
+      MONGO_OUTBOX_COLLECTION_NAME: outbox
+      MONGODB_SAVE_TIMEOUT: 5s
     ports:
       - "8080:8080"
     depends_on:
-      rabbitmq:
+      mongo:
         condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
 
+  # Worker consumes one order at a time and persists processing transitions.
   worker:
+    restart: unless-stopped
     build:
       context: .
       args:
         APP: worker
     environment:
-      MONGODB_URI: mongodb://root:root@mongo:27017/?authSource=admin
-      MONGODB_DATABASE: jobs
+      MONGODB_URI: mongodb://root:root@mongo:27017/?authSource=admin&replicaSet=rs0
+      MONGODB_DATABASE: orders
+      MONGO_COLLECTION_NAME: orders
+      MONGO_OUTBOX_COLLECTION_NAME: outbox
+      MONGODB_SAVE_TIMEOUT: 5s
       RABBITMQ_URL: amqp://app:app@rabbitmq:5672/
+      RABBITMQ_QUEUE_NAME: orders
+      RABBITMQ_DEAD_LETTER_QUEUE_NAME: orders.dlq
+      RABBITMQ_PUBLISH_TIMEOUT: 5s
+      OUTBOX_LEASE_DURATION: 15s
+      OUTBOX_RETRY_INTERVAL: 1s
     depends_on:
       mongo:
         condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
 
+  # Definitions create queues before application containers connect.
   rabbitmq:
     image: rabbitmq:4-management-alpine
     environment:
@@ -36,14 +57,20 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  # MongoDB keeps order documents in a named volume.
   mongo:
     image: mongo:8
+    entrypoint: ["/bin/sh", "/scripts/entrypoint.sh"]
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/configdb/keyfile"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: root
@@ -51,11 +78,43 @@ services:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
+      # Preserves the replica set internal-authentication key between restarts.
+      - mongo-config:/data/configdb
+      - ./mongo/entrypoint.sh:/scripts/entrypoint.sh:ro
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  # Initializes the single-node replica set required by MongoDB transactions.
+  mongo-init:
+    image: mongo:8
+    command:
+      - bash
+      - -c
+      - >-
+        mongosh --host mongo:27017 -u root -p root --authenticationDatabase admin --quiet
+        --eval 'try { rs.status() } catch (error) { rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo:27017"}]}) }; while (!db.hello().isWritablePrimary) { sleep(100) }'
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # Development-only visual inspection of MongoDB documents.
+  mongo-express:
+    image: mongo-express:1.0.2-20-alpine3.19
+    environment:
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root
+      ME_CONFIG_MONGODB_ADMINPASSWORD: root
+      ME_CONFIG_MONGODB_URL: mongodb://root:root@mongo:27017/
+    ports:
+      - "8081:8081"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
 volumes:
   mongo-data:
+  mongo-config:
