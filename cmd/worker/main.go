@@ -2,42 +2,72 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/example/mjv-challenge/config"
-	"github.com/example/mjv-challenge/core/usecase"
-	mongoadapter "github.com/example/mjv-challenge/mongo/adapter"
-	rabbitadapter "github.com/example/mjv-challenge/rabbitmq/adapter"
+	"github.com/joaohgf/mjv-challenge/config"
+	"github.com/joaohgf/mjv-challenge/internal/core/usecase"
+	consumeradapter "github.com/joaohgf/mjv-challenge/internal/inbound/consumer/adapter"
+	consumerdto "github.com/joaohgf/mjv-challenge/internal/inbound/consumer/dto"
+	consumermapper "github.com/joaohgf/mjv-challenge/internal/inbound/consumer/mapper"
+	repositoryadapter "github.com/joaohgf/mjv-challenge/internal/outbound/repository/adapter"
+	repositorymapper "github.com/joaohgf/mjv-challenge/internal/outbound/repository/mapper"
+	repositorymodel "github.com/joaohgf/mjv-challenge/internal/outbound/repository/model"
+	mongoadapter "github.com/joaohgf/mjv-challenge/pkg/mongo"
+	rabbitadapter "github.com/joaohgf/mjv-challenge/pkg/rabbitmq"
 )
 
+// main reports an unexpected worker stop after run returns.
 func main() {
-	ctx := context.Background()
+	if err := run(); err != nil {
+		slog.Error("worker stopped unexpectedly", "error", err)
+		os.Exit(1)
+	}
+}
+
+// run connects dependencies and consumes until a termination signal arrives.
+func run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	settings := config.Load()
-	repository, client, err := mongoadapter.NewJobRepository(ctx, settings.MongoDBURI, settings.MongoDatabase)
-	if err != nil {
-		log.Fatal(err)
+	mongo := mongoadapter.NewRepository[*repositorymodel.Order](settings.Database)
+	if err := mongo.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting mongodb: %w", err)
 	}
-	defer client.Disconnect(ctx)
-
-	connection, err := rabbitadapter.Connect(settings.RabbitMQURL)
-	if err != nil {
-		log.Fatal(err)
+	defer closeMongo(context.Background(), mongo)
+	slog.Info("mongodb connected", "database", settings.Database.MongoDatabase)
+	repository := repositoryadapter.NewRepository(mongo, &repositorymapper.OrderMapper{})
+	if err := startRelay(ctx, mongo, repository, settings); err != nil {
+		return err
 	}
-	defer connection.Close()
-
-	channel, err := connection.Channel()
-	if err != nil {
-		log.Fatal(err)
+	consumer := rabbitadapter.NewConsumer[*consumerdto.Message[*consumerdto.Order]](settings.Queue)
+	if err := consumer.Connect(ctx); err != nil {
+		return fmt.Errorf("connecting rabbitmq: %w", err)
 	}
-	defer channel.Close()
-
-	deliveries, err := rabbitadapter.Consume(channel)
-	if err != nil {
-		log.Fatal(err)
+	defer closeRabbit(consumer)
+	slog.Info("worker started", "queue", settings.Queue.Name)
+	updateOrder := usecase.NewUpdateOrder(repository)
+	handler := consumeradapter.NewConsumer(consumer, &consumermapper.Order{}, updateOrder)
+	if err := handler.Consume(ctx); err != nil && ctx.Err() == nil {
+		return fmt.Errorf("consuming messages: %w", err)
 	}
+	slog.Info("worker stopped")
+	return nil
+}
 
-	storeJob := usecase.NewStoreJob(repository)
-	for delivery := range deliveries {
-		process(ctx, storeJob, delivery)
+// closeMongo logs shutdown failures without masking the worker result.
+func closeMongo(ctx context.Context, repository interface{ Close(context.Context) error }) {
+	if err := repository.Close(ctx); err != nil {
+		slog.Error("closing mongodb connection", "error", err)
+	}
+}
+
+// closeRabbit logs AMQP shutdown failures without masking the worker result.
+func closeRabbit(rabbit interface{ Close() error }) {
+	if err := rabbit.Close(); err != nil {
+		slog.Error("closing rabbitmq connection", "error", err)
 	}
 }
