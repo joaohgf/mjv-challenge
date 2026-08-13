@@ -6,6 +6,30 @@ processa de forma assíncrona com MongoDB, RabbitMQ e transactional outbox.
 Os detalhes de desenho, fluxo de dados, resiliência, mensageria e telemetria
 estão em [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Tecnologias e pré-requisitos
+
+Para executar a aplicação completa, instale apenas Docker com o plugin Docker
+Compose. MongoDB, RabbitMQ, Jaeger, Prometheus, Collector e k6 são baixados e
+executados pelos arquivos Compose; não devem ser instalados localmente.
+
+| Tecnologia | Versão no projeto | Uso | Instalação e documentação oficial |
+| --- | --- | --- | --- |
+| [Docker e Docker Compose](https://docs.docker.com/get-started/get-docker/) | — | Executa todos os serviços e builds locais. | **Obrigatório** para subir o stack. Após instalar, valide com `docker compose version`. |
+| [Go](https://go.dev/doc/install) | `1.26.0` | Linguagem da API e do worker; versão declarada em `go.mod`. | Necessário para `go test`, `make deps` e `make swagger`. Valide com `go version`. |
+| [GNU Make](https://www.gnu.org/software/make/) | — | Atalhos versionados no `Makefile` para Docker, testes e Swagger. | Opcional: cada atalho possui comando equivalente de Docker Compose abaixo. |
+| [Gin](https://gin-gonic.com/en/docs/routing/) | `1.12.0` | Engine HTTP, rotas, binding e middleware de tracing da API. | Biblioteca Go baixada automaticamente por `go mod download` ou pelo build Docker. |
+| [MongoDB](https://www.mongodb.com/docs/manual/installation/) | `8` | Banco de documentos, transações e outbox. | Executado pelo container `mongo`; não requer instalação local. |
+| [RabbitMQ](https://www.rabbitmq.com/docs/download) | `4-management-alpine` | Broker AMQP, fila de trabalho, DLQ e painel de gerenciamento. | Executado pelo container `rabbitmq`; não requer instalação local. |
+| [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) | `0.158.0` | Recebe spans e produz métricas RED para o SPM. | Executado somente com o compose de interfaces. |
+| [Jaeger](https://www.jaegertracing.io/docs/) | `1.76.0` | Exploração de traces e aba Monitor do SPM. | Executado somente com o compose de interfaces. |
+| [Prometheus](https://prometheus.io/docs/prometheus/latest/getting_started/) | `3.13.1` | Armazena métricas RED derivadas dos spans. | Executado somente com o compose de interfaces. |
+| [Swaggo](https://github.com/swaggo/swag) e [gin-swagger](https://github.com/swaggo/gin-swagger) | `1.16.6` / `1.6.1` | Geração e apresentação da documentação Swagger. | Baixados como dependências Go; use `make swagger` para regenerar `docs/`. |
+| [k6](https://grafana.com/docs/k6/latest/) | `2.1.0` | Cenários de teste de carga. | Executado pelo container efêmero `k6`; não requer instalação local. |
+
+O Dockerfile compila API e worker com `golang:1.26-alpine`. Caso queira rodar
+comandos Go fora do Docker, use uma versão `1.26.x` compatível. O Makefile não é
+obrigatório: ele só encurta os comandos Docker Compose documentados a seguir.
+
 ## Serviços e acessos locais
 
 O [docker-compose.yml](docker-compose.yml) inicia somente a aplicação e suas
@@ -21,6 +45,7 @@ arquivo `.env` e só são iniciadas quando solicitadas.
 | `mongo` | base | interfaces: `27017` | Armazena pedidos e eventos de outbox. |
 | `mongo-init` | base | — | Inicializa replica set e índices. |
 | `mongo-express` | interfaces | `8081` | Visualização dos documentos. |
+| `otel-collector` | interfaces | interna | Recebe spans e gera métricas RED. |
 | `jaeger` | interfaces | `16686` | Visualização de traces e métricas RED. |
 | `prometheus` | interfaces | `9090` | Armazena métricas RED derivadas dos spans. |
 
