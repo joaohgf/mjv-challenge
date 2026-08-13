@@ -6,18 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func TestTelemetryRecordsOperationsAndSpans(t *testing.T) {
-	ctx, span := StartSpan(context.Background(), "test", trace.SpanKindInternal)
+func TestTelemetryRecordsSpans(t *testing.T) {
+	_, span := StartSpan(context.Background(), "test", trace.SpanKindInternal)
 	End(span, errors.New("failed"))
-	RecordHTTP(ctx, http.MethodGet, "/orders", http.StatusOK, time.Millisecond)
-	RecordOperation(ctx, "mongo", "get", nil)
-	RecordOperation(ctx, "rabbitmq", "publish", errors.New("failed"))
 }
 
 func TestGinMiddlewareHandlesSuccessfulAndFailedResponses(t *testing.T) {

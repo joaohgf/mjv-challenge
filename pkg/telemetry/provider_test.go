@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/joaohgf/mjv-challenge/config"
-	"go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -21,18 +19,13 @@ func TestStartDisabledReturnsNoopShutdown(t *testing.T) {
 	}
 }
 
-func TestMeterProviderAndShutdownAreLocal(t *testing.T) {
-	settings := &config.Telemetry{MetricsEnabled: false}
-	provider, err := newMeterProvider(context.Background(), settings, resource.Empty())
-	if err != nil {
-		t.Fatalf("expected local meter provider, got %v", err)
-	}
-	if err := shutdown(trace.NewTracerProvider(), provider)(context.Background()); err != nil {
-		t.Fatalf("expected local providers to stop, got %v", err)
+func TestShutdownStopsTraceProvider(t *testing.T) {
+	if err := shutdown(trace.NewTracerProvider())(context.Background()); err != nil {
+		t.Fatalf("expected trace provider to stop, got %v", err)
 	}
 }
 
 func TestCloseDoesNotPropagateShutdownError(t *testing.T) {
 	Close(context.Background(), func(context.Context) error { return errors.New("exporter unavailable") })
-	Close(context.Background(), shutdown(trace.NewTracerProvider(), metric.NewMeterProvider()))
+	Close(context.Background(), shutdown(trace.NewTracerProvider()))
 }

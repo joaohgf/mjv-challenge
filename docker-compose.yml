@@ -16,7 +16,6 @@ services:
       MONGO_OUTBOX_COLLECTION_NAME: outbox
       MONGODB_SAVE_TIMEOUT: 5s
       OTEL_ENABLED: "false"
-      OTEL_METRICS_ENABLED: "false"
       OTEL_SERVICE_NAME: orders-api
     ports:
       - "8080:8080"
@@ -47,7 +46,6 @@ services:
       OUTBOX_RETRY_INTERVAL: 1s
       OUTBOX_MAX_ATTEMPTS: 5
       OTEL_ENABLED: "false"
-      OTEL_METRICS_ENABLED: "false"
       OTEL_SERVICE_NAME: orders-worker
     depends_on:
       mongo:

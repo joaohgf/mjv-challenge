@@ -15,7 +15,6 @@ import (
 func (repository *Repository[M]) Create(ctx context.Context, model M) (modelResult M, err error) {
 	ctx, span := telemetry.StartSpan(ctx, "mongodb.create", trace.SpanKindClient)
 	defer func() {
-		telemetry.RecordOperation(ctx, "mongodb", "create", err)
 		telemetry.End(span, err)
 	}()
 	if model.GetID() == "" {
@@ -34,7 +33,6 @@ func (repository *Repository[M]) Create(ctx context.Context, model M) (modelResu
 func (repository *Repository[M]) Update(ctx context.Context, model M) (modelResult M, err error) {
 	ctx, span := telemetry.StartSpan(ctx, "mongodb.update", trace.SpanKindClient)
 	defer func() {
-		telemetry.RecordOperation(ctx, "mongodb", "update", err)
 		telemetry.End(span, err)
 	}()
 	if model.GetID() == "" {
@@ -54,7 +52,6 @@ func (repository *Repository[M]) Update(ctx context.Context, model M) (modelResu
 func (repository *Repository[M]) Get(ctx context.Context, id string) (modelResult M, err error) {
 	ctx, span := telemetry.StartSpan(ctx, "mongodb.get", trace.SpanKindClient)
 	defer func() {
-		telemetry.RecordOperation(ctx, "mongodb", "get", err)
 		telemetry.End(span, err)
 	}()
 	var model M

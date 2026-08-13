@@ -36,10 +36,9 @@ type (
 	}
 	// Telemetry configures optional OpenTelemetry export for this process.
 	Telemetry struct {
-		Enabled        bool
-		MetricsEnabled bool
-		ServiceName    string
-		Endpoint       string
+		Enabled     bool
+		ServiceName string
+		Endpoint    string
 	}
 )
 
@@ -58,10 +57,9 @@ func Load() Config {
 // LoadTelemetry returns the OTLP exporter settings for the current process.
 func LoadTelemetry() *Telemetry {
 	return &Telemetry{
-		Enabled:        enabled("OTEL_ENABLED"),
-		MetricsEnabled: enabled("OTEL_METRICS_ENABLED"),
-		ServiceName:    value("OTEL_SERVICE_NAME", "mjv-challenge"),
-		Endpoint:       value("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+		Enabled:     enabled("OTEL_ENABLED"),
+		ServiceName: value("OTEL_SERVICE_NAME", "mjv-challenge"),
+		Endpoint:    value("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
 	}
 }
 

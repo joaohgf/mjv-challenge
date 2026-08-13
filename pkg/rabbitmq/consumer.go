@@ -47,7 +47,6 @@ func (c *Consumer[M]) process(ctx context.Context, delivery amqp091.Delivery, ha
 	ctx = telemetry.ExtractAMQPHeaders(ctx, delivery.Headers)
 	ctx, span := telemetry.StartSpan(ctx, "rabbitmq.consume", trace.SpanKindConsumer)
 	defer func() {
-		telemetry.RecordOperation(ctx, "rabbitmq", "consume", err)
 		telemetry.End(span, err)
 	}()
 	source, err := c.decode(delivery.Body)

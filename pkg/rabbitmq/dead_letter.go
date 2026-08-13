@@ -15,7 +15,6 @@ import (
 func (c *Consumer[M]) deadLetter(ctx context.Context, delivery amqp091.Delivery, cause error) (err error) {
 	ctx, span := telemetry.StartSpan(ctx, "rabbitmq.dead_letter", trace.SpanKindProducer)
 	defer func() {
-		telemetry.RecordOperation(ctx, "rabbitmq", "dead_letter", err)
 		telemetry.End(span, err)
 	}()
 	message := toPublishing(ctx, delivery, cause)

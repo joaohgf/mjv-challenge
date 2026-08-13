@@ -41,12 +41,11 @@ func TestPositiveIntUsesFallbackForInvalidValue(t *testing.T) {
 
 func TestLoadTelemetryUsesEnvironment(t *testing.T) {
 	t.Setenv("OTEL_ENABLED", "true")
-	t.Setenv("OTEL_METRICS_ENABLED", "true")
 	t.Setenv("OTEL_SERVICE_NAME", "orders-api")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "collector:4317")
 
 	telemetry := LoadTelemetry()
-	if !telemetry.Enabled || !telemetry.MetricsEnabled || telemetry.ServiceName != "orders-api" || telemetry.Endpoint != "collector:4317" {
+	if !telemetry.Enabled || telemetry.ServiceName != "orders-api" || telemetry.Endpoint != "collector:4317" {
 		t.Fatalf("expected telemetry configuration from environment, got %#v", telemetry)
 	}
 }

@@ -15,7 +15,6 @@ import (
 func (pb *Publisher[M]) publish(ctx context.Context, message M, name string, headers amqp091.Table) (err error) {
 	ctx, span := telemetry.StartSpan(ctx, name, trace.SpanKindProducer)
 	defer func() {
-		telemetry.RecordOperation(ctx, "rabbitmq", name, err)
 		telemetry.End(span, err)
 	}()
 	body, err := json.Marshal(message)

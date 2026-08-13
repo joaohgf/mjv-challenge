@@ -44,7 +44,6 @@ func (relay *Relay) Run(ctx context.Context) error {
 func (relay *Relay) dispatch(ctx context.Context) (dispatched bool, err error) {
 	ctx, span := telemetry.StartSpan(ctx, "outbox.dispatch", trace.SpanKindProducer)
 	defer func() {
-		telemetry.RecordOperation(ctx, "outbox", "dispatch", err)
 		telemetry.End(span, err)
 	}()
 	return relay.dispatcher.Dispatch(ctx)
