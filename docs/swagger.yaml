@@ -1,0 +1,106 @@
+basePath: /
+definitions:
+  dto.OrderCreate:
+    properties:
+      product_name:
+        type: string
+      quantity:
+        minimum: 1
+        type: integer
+    required:
+    - product_name
+    type: object
+  dto.OrderResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      product_name:
+        type: string
+      quantity:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  errors.FieldError:
+    properties:
+      field:
+        type: string
+      message:
+        type: string
+    type: object
+  errors.RequestError:
+    properties:
+      err:
+        type: string
+      errors:
+        items:
+          $ref: '#/definitions/errors.FieldError'
+        type: array
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API para criação assíncrona de pedidos.
+  title: MJV Challenge API
+  version: "1.0"
+paths:
+  /orders:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Order data
+        in: body
+        name: order
+        required: true
+        schema:
+          $ref: '#/definitions/dto.OrderCreate'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.OrderResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/errors.RequestError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/errors.RequestError'
+      summary: Create an order
+      tags:
+      - orders
+  /orders/{id}:
+    get:
+      parameters:
+      - description: Order ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.OrderResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/errors.RequestError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/errors.RequestError'
+      summary: Get an order
+      tags:
+      - orders
+swagger: "2.0"
