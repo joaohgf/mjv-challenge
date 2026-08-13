@@ -123,7 +123,7 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
-                "id": {
+                "order_id": {
                     "type": "string"
                 },
                 "product_name": {

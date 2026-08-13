@@ -10,7 +10,7 @@ type (
 	}
 	// OrderResponse is the JSON representation returned by the order endpoints.
 	OrderResponse struct {
-		ID          string     `json:"id"`
+		ID          string     `json:"order_id"`
 		ProductName string     `json:"product_name"`
 		Status      string     `json:"status"`
 		Quantity    int        `json:"quantity"`

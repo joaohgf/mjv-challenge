@@ -55,7 +55,7 @@ func TestOrderRouteCreatesOrder(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, response.Code, response.Body)
 	}
-	if !strings.Contains(response.Body.String(), `"id":"order-1"`) {
+	if !strings.Contains(response.Body.String(), `"order_id":"order-1"`) {
 		t.Fatalf("expected created order, got %s", response.Body)
 	}
 }
@@ -70,7 +70,7 @@ func TestOrderRouteGetsOrder(t *testing.T) {
 
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/orders/order-1", nil))
 
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"order-1"`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"order_id":"order-1"`) {
 		t.Fatalf("expected found order, got status=%d body=%s", response.Code, response.Body.String())
 	}
 }

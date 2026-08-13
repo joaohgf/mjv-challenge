@@ -79,7 +79,7 @@ export function setup() {
 
 export default function () {
   const response = createOrder();
-  const id = response.json('id') || '';
+  const id = response.json('order_id') || '';
   const created = check(response, { 'order is created': (result) => result.status === 201 && id !== '' });
   creationSuccess.add(created);
   if (!created) return;
@@ -108,7 +108,7 @@ function waitForProcessing(id) {
 
 function warmup() {
   const response = createOrder('warmup');
-  const id = response.json('id') || '';
+  const id = response.json('order_id') || '';
   return response.status === 201 && id !== '' && waitForProcessing(id);
 }
 

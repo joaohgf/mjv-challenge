@@ -120,7 +120,7 @@ uma lista `errors`:
 {"err":"invalid request data","errors":[{"field":"quantity","message":"must be greater than zero"}]}
 ```
 
-O documento retornado contém `id`, `status`, `created_at` e `updated_at`.
+O documento retornado contém `order_id`, `status`, `created_at` e `updated_at`.
 
 ## Testes
 
