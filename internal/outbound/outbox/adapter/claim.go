@@ -8,7 +8,9 @@ import (
 
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
 	errs "github.com/joaohgf/mjv-challenge/internal/core/error"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 	"github.com/joaohgf/mjv-challenge/internal/outbound/outbox/model"
+	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -24,18 +26,21 @@ func (store *Store[D, M]) Claim(ctx context.Context) (*domain.OutboxEvent[D], er
 	} else if err != nil {
 		return nil, fmt.Errorf("claiming outbox event: %w", err)
 	}
-	return &domain.OutboxEvent[D]{ID: event.ID, Payload: store.mapper.From(event.Payload), Attempts: event.Attempts}, nil
+	return &domain.OutboxEvent[D]{
+		ID: event.ID, Payload: store.mapper.From(event.Payload), Attempts: event.Attempts,
+		Context: telemetry.ExtractContext(ctx, event.TraceContext),
+	}, nil
 }
 
 func available(now time.Time) bson.M {
 	return bson.M{"$or": bson.A{
-		bson.M{"status": model.Pending},
-		bson.M{"status": model.Processing, "locked_until": bson.M{"$lte": now}},
+		bson.M{"status": enum.OutboxPending},
+		bson.M{"status": enum.OutboxProcessing, "locked_until": bson.M{"$lte": now}},
 	}}
 }
 
 func claimUpdate(now time.Time, lease time.Duration) bson.M {
-	return bson.M{"$set": bson.M{"status": model.Processing, "locked_until": now.Add(lease), "updated_at": now}, "$inc": bson.M{"attempts": 1}}
+	return bson.M{"$set": bson.M{"status": enum.OutboxProcessing, "locked_until": now.Add(lease), "updated_at": now}, "$inc": bson.M{"attempts": 1}}
 }
 
 func claimOptions() *options.FindOneAndUpdateOptions {

@@ -5,16 +5,16 @@ import (
 	"time"
 
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 )
 
-func TestOrderMapperRoundTripsDomainData(t *testing.T) {
+func TestOrderRoundTripsDomainData(t *testing.T) {
 	updatedAt := time.Now().UTC()
 	source := &domain.Order{
 		ID: "order-1", ProductName: "Caderno", Status: enum.Processado, Quantity: 2,
 		CreatedAt: updatedAt, UpdatedAt: &updatedAt,
 	}
-	mapper := new(OrderMapper)
+	mapper := new(Order)
 
 	result := mapper.From(mapper.To(source))
 

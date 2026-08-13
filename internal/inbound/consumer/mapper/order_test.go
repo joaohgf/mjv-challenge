@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 	"github.com/joaohgf/mjv-challenge/internal/inbound/consumer/dto"
 )
 

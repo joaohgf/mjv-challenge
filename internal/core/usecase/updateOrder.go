@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
 	"github.com/joaohgf/mjv-challenge/internal/core/port"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 )
 
 // UpdateOrder persists the two processing states of a consumed order message.

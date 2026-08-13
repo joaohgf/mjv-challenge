@@ -20,6 +20,5 @@ func NewPublisher[D, M any](publisher port.Publisher[M], mapper port.To[D, M]) *
 // Publish translates a domain value and sends its message representation.
 func (publisher *Publisher[D, M]) Publish(ctx context.Context, source D) error {
 	target := publisher.mapper.To(source)
-	err := publisher.publisher.Publish(ctx, target)
-	return err
+	return publisher.publisher.Publish(ctx, target)
 }

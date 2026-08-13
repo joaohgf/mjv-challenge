@@ -8,7 +8,7 @@ import (
 )
 
 // Close releases AMQP resources and accepts connections already closed remotely.
-func (rb *RabbitMQ) Close() error {
+func (rb *Client) Close() error {
 	channel, connection := rb.channel, rb.connection
 	rb.channel, rb.connection = nil, nil
 	if err := closeChannel(channel); err != nil {
@@ -18,7 +18,7 @@ func (rb *RabbitMQ) Close() error {
 }
 
 // IsClosed reports whether the AMQP resources are unavailable for use.
-func (rb *RabbitMQ) IsClosed() bool {
+func (rb *Client) IsClosed() bool {
 	return rb.channel == nil || rb.connection == nil || rb.channel.IsClosed() || rb.connection.IsClosed()
 }
 

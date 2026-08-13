@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 )
 
 func TestOrderToBuildsOrderMessage(t *testing.T) {

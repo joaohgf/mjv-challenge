@@ -11,5 +11,6 @@ func LoadQueue() *Queue {
 	target.PublishTimeout = duration("RABBITMQ_PUBLISH_TIMEOUT", 5*time.Second)
 	target.OutboxLease = duration("OUTBOX_LEASE_DURATION", 15*time.Second)
 	target.OutboxRetryInterval = duration("OUTBOX_RETRY_INTERVAL", time.Second)
+	target.OutboxMaxAttempts = positiveInt("OUTBOX_MAX_ATTEMPTS", 5)
 	return target
 }

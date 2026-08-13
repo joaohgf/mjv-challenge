@@ -7,9 +7,11 @@ import (
 
 func TestLoadUsesSwaggerHostEnvironment(t *testing.T) {
 	t.Setenv("SWAGGER_HOST", "api.example.com")
+	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "7s")
 
-	if got := Load().SwaggerHost; got != "api.example.com" {
-		t.Fatalf("expected Swagger host from environment, got %q", got)
+	settings := Load()
+	if settings.SwaggerHost != "api.example.com" || settings.HTTPShutdownTimeout != 7*time.Second {
+		t.Fatalf("expected HTTP configuration from environment, got %#v", settings)
 	}
 }
 
@@ -20,11 +22,32 @@ func TestLoadQueueUsesEnvironment(t *testing.T) {
 	t.Setenv("RABBITMQ_PUBLISH_TIMEOUT", "3s")
 	t.Setenv("OUTBOX_LEASE_DURATION", "10s")
 	t.Setenv("OUTBOX_RETRY_INTERVAL", "2s")
+	t.Setenv("OUTBOX_MAX_ATTEMPTS", "7")
 
 	queue := LoadQueue()
 
-	if queue.RabbitMQURL != "amqp://queue.example" || queue.Name != "work" || queue.DeadLetterName != "work.dlq" || queue.PublishTimeout != 3*time.Second || queue.OutboxLease != 10*time.Second || queue.OutboxRetryInterval != 2*time.Second {
+	if queue.RabbitMQURL != "amqp://queue.example" || queue.Name != "work" || queue.DeadLetterName != "work.dlq" || queue.PublishTimeout != 3*time.Second || queue.OutboxLease != 10*time.Second || queue.OutboxRetryInterval != 2*time.Second || queue.OutboxMaxAttempts != 7 {
 		t.Fatalf("expected queue configuration from environment, got %#v", queue)
+	}
+}
+
+func TestPositiveIntUsesFallbackForInvalidValue(t *testing.T) {
+	t.Setenv("INVALID_NUMBER", "zero")
+
+	if got := positiveInt("INVALID_NUMBER", 5); got != 5 {
+		t.Fatalf("expected fallback value, got %d", got)
+	}
+}
+
+func TestLoadTelemetryUsesEnvironment(t *testing.T) {
+	t.Setenv("OTEL_ENABLED", "true")
+	t.Setenv("OTEL_METRICS_ENABLED", "true")
+	t.Setenv("OTEL_SERVICE_NAME", "orders-api")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "collector:4317")
+
+	telemetry := LoadTelemetry()
+	if !telemetry.Enabled || !telemetry.MetricsEnabled || telemetry.ServiceName != "orders-api" || telemetry.Endpoint != "collector:4317" {
+		t.Fatalf("expected telemetry configuration from environment, got %#v", telemetry)
 	}
 }
 

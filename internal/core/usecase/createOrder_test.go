@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 )
 
 type createOrderStub struct {

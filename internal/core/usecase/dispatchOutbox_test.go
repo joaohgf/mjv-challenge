@@ -11,14 +11,17 @@ import (
 
 type (
 	outboxStub struct {
-		event     *domain.OutboxEvent[string]
-		claimErr  error
-		released  string
-		published string
+		event        *domain.OutboxEvent[string]
+		claimErr     error
+		released     string
+		published    string
+		deadLettered string
 	}
 	publisherStub struct {
 		message string
 		err     error
+		context context.Context
+		cause   error
 	}
 )
 
@@ -33,21 +36,46 @@ func (stub *outboxStub) MarkPublished(_ context.Context, id string) error {
 	return nil
 }
 
+func (stub *outboxStub) MarkDeadLettered(_ context.Context, id string) error {
+	stub.deadLettered = id
+	return nil
+}
+
 func (stub *outboxStub) Release(_ context.Context, id string) error {
 	stub.released = id
 	return nil
 }
 
-func (stub *publisherStub) Publish(_ context.Context, message string) error {
+func (stub *publisherStub) Publish(ctx context.Context, message string) error {
+	stub.context = ctx
 	stub.message = message
 	return stub.err
+}
+
+func (stub *publisherStub) DeadLetter(ctx context.Context, message string, cause error) error {
+	stub.context = ctx
+	stub.message = message
+	stub.cause = cause
+	return stub.err
+}
+
+func TestDispatchOutboxUsesRestoredEventContext(t *testing.T) {
+	restored := context.WithValue(context.Background(), "trace", "request-1")
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{Payload: "order-1", Context: restored}}
+	publisher := new(publisherStub)
+
+	_, err := NewDispatchOutbox(outbox, publisher, publisher, 5).Dispatch(context.Background())
+
+	if err != nil || publisher.context.Value("trace") != "request-1" {
+		t.Fatalf("expected restored event context, got err=%v context=%v", err, publisher.context)
+	}
 }
 
 func TestDispatchOutboxPublishesAndMarksClaimedEvent(t *testing.T) {
 	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1"}}
 	publisher := new(publisherStub)
 
-	dispatched, err := NewDispatchOutbox(outbox, publisher).Dispatch(context.Background())
+	dispatched, err := NewDispatchOutbox(outbox, publisher, publisher, 5).Dispatch(context.Background())
 
 	if err != nil || !dispatched || publisher.message != "order-1" || outbox.published != "event-1" {
 		t.Fatalf("expected confirmed event dispatch, got dispatched=%t err=%v", dispatched, err)
@@ -58,7 +86,7 @@ func TestDispatchOutboxReleasesEventAfterPublicationFailure(t *testing.T) {
 	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1"}}
 	publisher := &publisherStub{err: errors.New("broker unavailable")}
 
-	dispatched, err := NewDispatchOutbox(outbox, publisher).Dispatch(context.Background())
+	dispatched, err := NewDispatchOutbox(outbox, publisher, publisher, 5).Dispatch(context.Background())
 
 	if err == nil || !dispatched || outbox.released != "event-1" || outbox.published != "" {
 		t.Fatalf("expected released event, got dispatched=%t err=%v outbox=%#v", dispatched, err, outbox)
@@ -66,9 +94,22 @@ func TestDispatchOutboxReleasesEventAfterPublicationFailure(t *testing.T) {
 }
 
 func TestDispatchOutboxDoesNothingWhenNoEventIsAvailable(t *testing.T) {
-	dispatched, err := NewDispatchOutbox(&outboxStub{claimErr: errs.ErrNotFound}, new(publisherStub)).Dispatch(context.Background())
+	publisher := new(publisherStub)
+	dispatched, err := NewDispatchOutbox(&outboxStub{claimErr: errs.ErrNotFound}, publisher, publisher, 5).Dispatch(context.Background())
 
 	if err != nil || dispatched {
 		t.Fatalf("expected idle dispatch, got dispatched=%t err=%v", dispatched, err)
+	}
+}
+
+func TestDispatchOutboxParksEventAfterFiveFailedAttempts(t *testing.T) {
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1", Attempts: 5}}
+	publisher := &publisherStub{err: errors.New("broker unavailable")}
+	deadLetter := new(publisherStub)
+
+	dispatched, err := NewDispatchOutbox(outbox, publisher, deadLetter, 5).Dispatch(context.Background())
+
+	if err != nil || !dispatched || deadLetter.message != "order-1" || deadLetter.cause == nil || outbox.deadLettered != "event-1" || outbox.released != "" {
+		t.Fatalf("expected parked event, got dispatched=%t err=%v outbox=%#v", dispatched, err, outbox)
 	}
 }

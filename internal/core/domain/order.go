@@ -3,7 +3,7 @@ package domain
 import (
 	"time"
 
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 )
 
 // Order is the domain representation of a submitted order and its lifecycle.

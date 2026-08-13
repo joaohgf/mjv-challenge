@@ -8,22 +8,22 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-// RabbitMQ owns an AMQP connection and one channel for a publisher or consumer.
-type RabbitMQ struct {
+// Client owns an AMQP connection and one channel for a publisher or consumer.
+type Client struct {
 	config     *config.Queue
 	connection *amqp091.Connection
 	channel    *amqp091.Channel
 }
 
-// NewRabbitMQ builds a disconnected AMQP client with queue configuration.
-func NewRabbitMQ(config *config.Queue) *RabbitMQ {
-	target := new(RabbitMQ)
+// NewClient builds a disconnected AMQP client with queue configuration.
+func NewClient(config *config.Queue) *Client {
+	target := new(Client)
 	target.config = config
 	return target
 }
 
 // Connect opens an AMQP connection and the channel shared by one adapter.
-func (rb *RabbitMQ) Connect(ctx context.Context) error {
+func (rb *Client) Connect(ctx context.Context) error {
 	connection, err := amqp091.Dial(rb.config.RabbitMQURL)
 	if err != nil {
 		return fmt.Errorf("connecting rabbitMQ: %w", err)

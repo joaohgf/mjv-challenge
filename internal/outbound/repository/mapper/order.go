@@ -2,15 +2,15 @@ package mapper
 
 import (
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 	"github.com/joaohgf/mjv-challenge/internal/outbound/repository/model"
 )
 
-// OrderMapper converts domain orders to and from MongoDB persistence models.
-type OrderMapper struct{}
+// Order converts domain orders to and from MongoDB persistence models.
+type Order struct{}
 
 // To builds the persistence model used by the MongoDB adapter.
-func (*OrderMapper) To(source *domain.Order) *model.Order {
+func (*Order) To(source *domain.Order) *model.Order {
 	target := model.NewOrder()
 	if source.ID != "" {
 		target.ID = source.ID
@@ -26,7 +26,7 @@ func (*OrderMapper) To(source *domain.Order) *model.Order {
 }
 
 // From rebuilds the domain order returned by a MongoDB query or save.
-func (*OrderMapper) From(source *model.Order) *domain.Order {
+func (*Order) From(source *model.Order) *domain.Order {
 	target := domain.NewOrder()
 	target.ID = source.ID
 	target.ProductName = source.ProductName

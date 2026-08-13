@@ -16,6 +16,7 @@ type (
 		Enqueue(context.Context, D) error
 		Claim(context.Context) (*domain.OutboxEvent[D], error)
 		MarkPublished(context.Context, string) error
+		MarkDeadLettered(context.Context, string) error
 		Release(context.Context, string) error
 	}
 	// Dispatcher publishes at most one available outbox event.

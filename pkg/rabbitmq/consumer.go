@@ -7,17 +7,19 @@ import (
 	"fmt"
 
 	"github.com/joaohgf/mjv-challenge/config"
+	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 	"github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Consumer decodes deliveries and coordinates manual acknowledgement.
 type Consumer[M any] struct {
-	*RabbitMQ
+	*Client
 }
 
 // NewConsumer creates a typed consumer for the configured main queue.
 func NewConsumer[M any](config *config.Queue) *Consumer[M] {
-	return &Consumer[M]{RabbitMQ: NewRabbitMQ(config)}
+	return &Consumer[M]{Client: NewClient(config)}
 }
 
 // Consume processes one unacknowledged delivery at a time until context ends.
@@ -41,7 +43,13 @@ func (c *Consumer[M]) Consume(ctx context.Context, handle func(context.Context, 
 }
 
 // process acknowledges success or parks a decoding or handling failure in the DLQ.
-func (c *Consumer[M]) process(ctx context.Context, delivery amqp091.Delivery, handle func(context.Context, M) error) error {
+func (c *Consumer[M]) process(ctx context.Context, delivery amqp091.Delivery, handle func(context.Context, M) error) (err error) {
+	ctx = telemetry.ExtractAMQPHeaders(ctx, delivery.Headers)
+	ctx, span := telemetry.StartSpan(ctx, "rabbitmq.consume", trace.SpanKindConsumer)
+	defer func() {
+		telemetry.RecordOperation(ctx, "rabbitmq", "consume", err)
+		telemetry.End(span, err)
+	}()
 	source, err := c.decode(delivery.Body)
 	if err != nil {
 		return c.deadLetter(ctx, delivery, err)

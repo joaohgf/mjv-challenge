@@ -13,13 +13,15 @@ flowchart LR
     Queue --> Worker["Worker Go"]
     Worker --> Mongo
     Worker -. falha .-> DLQ["RabbitMQ: orders.dlq"]
+    API -. traces .-> Jaeger["Jaeger"]
+    Worker -. traces .-> Jaeger
     Swagger["Swagger UI"] --> API
     MongoExpress["Mongo Express"] --> Mongo
 ```
 
 ## Serviços e infraestrutura
 
-O [compose.yaml](compose.yaml) inicia seis serviços de aplicação e apoio.
+O [docker-compose.yml](docker-compose.yml) inicia sete serviços de aplicação e apoio.
 Todos possuem valores fixados no Compose; não há necessidade de `.env`.
 
 | Serviço | Porta | Responsabilidade |
@@ -30,10 +32,14 @@ Todos possuem valores fixados no Compose; não há necessidade de `.env`.
 | `mongo` | `27017` | Armazena os documentos de `orders` e `outbox`. |
 | `mongo-init` | — | Inicializa o replica set `rs0` exigido por transações. |
 | `mongo-express` | `8081` | Visualização dos documentos do MongoDB. |
+| `jaeger` | `16686` | Recebe telemetria OTLP e permite explorar traces. |
 
 API e worker aguardam a inicialização do replica set; o worker também aguarda
 o healthcheck do RabbitMQ. Os dados e a chave interna do MongoDB ficam nos
 volumes nomeados `mongo-data` e `mongo-config`, preservados entre recriações.
+Ao receber `SIGTERM` ou `SIGINT`, a API deixa de aceitar conexões e aguarda até
+`HTTP_SHUTDOWN_TIMEOUT` (`10s`) por requisições em andamento. O Compose reserva
+`15s` antes de forçar o encerramento do container.
 
 Credenciais locais de desenvolvimento:
 
@@ -71,6 +77,7 @@ Endereços locais:
 - Swagger UI: `http://localhost:8080/swagger/index.html`
 - RabbitMQ Management: `http://localhost:15672`
 - Mongo Express: `http://localhost:8081`
+- Jaeger UI: `http://localhost:16686`
 
 Para publicar a API em outro ambiente, altere `SWAGGER_HOST` no serviço `api`
 do Compose para o host público, sem protocolo.
@@ -132,6 +139,12 @@ evento volta imediatamente a `PENDING`; se o worker cair, o lease expira e
 outro relay poderá retomá-lo. O período entre tentativas é
 `OUTBOX_RETRY_INTERVAL` (`1s`).
 
+Após cinco falhas de publicação (`OUTBOX_MAX_ATTEMPTS=5`), o relay publica o
+payload original em `orders.dlq` com o header `x-failure-reason` e marca o
+evento como `DEAD_LETTERED`. Esse estado não é selecionado novamente pelo relay.
+Caso essa publicação na DLQ também falhe, o evento volta a `PENDING` para que a
+tentativa de estacionamento seja repetida quando o RabbitMQ estiver disponível.
+
 Se a conexão exclusiva do publisher for encerrada, o relay recria a conexão e
 o canal antes da próxima tentativa. Se a conexão do consumer for encerrada, o
 worker encerra com erro e o Compose o reinicia (`restart: unless-stopped`),
@@ -159,10 +172,10 @@ As filas são declaradas antes da aplicação iniciar em
 As mensagens publicadas pelo relay são persistentes. O relay usa *publisher
 confirms*: só marca o evento como `PUBLISHED` após o `Ack` do broker; um `Nack`,
 conexão encerrada ou espera superior a `RABBITMQ_PUBLISH_TIMEOUT` (`5s` no
-Compose) deixa o evento disponível para nova tentativa. O consumer usa
-confirmação manual e `prefetch=1`: processa somente uma entrega pendente por
-vez. Após persistir as duas transições do pedido, confirma a entrega com `Ack`,
-removendo-a de `orders`.
+Compose) deixa o evento disponível para nova tentativa, até o limite de
+`OUTBOX_MAX_ATTEMPTS`. O consumer usa confirmação manual e `prefetch=1`:
+processa somente uma entrega pendente por vez. Após persistir as duas transições
+do pedido, confirma a entrega com `Ack`, removendo-a de `orders`.
 
 Uma mensagem inválida ou com falha no caso de uso não recebe `Reject` ou
 `Nack`. O consumer republica o payload original para `orders.dlq`, preserva os
@@ -214,6 +227,7 @@ cmd/                 pontos de entrada da API e do worker
 config/              leitura das variáveis de ambiente
 internal/bootstrap/  composição específica de pedidos e rotas Gin
 internal/core/       domínio, portas e casos de uso
+internal/enum/       estados compartilhados de pedidos e eventos de outbox
 internal/inbound/    handlers HTTP, consumer e relay do worker
 internal/outbound/   adapters, DTOs/models e mappers de Mongo/RabbitMQ/outbox
 pkg/mongo/           operação genérica do driver MongoDB
@@ -227,6 +241,35 @@ bordas e os mappers fazem conversões determinísticas. A `main` conecta somente
 as implementações de `pkg`; `buildOrder` no bootstrap compõe o fluxo específico
 de pedido, seus mappers, adapters e casos de uso.
 
+## Telemetria
+
+A telemetria usa OpenTelemetry e está habilitada no Compose. API e worker
+enviam traces via OTLP gRPC para o Jaeger no endereço `jaeger:4317`. Os nomes
+dos serviços são definidos por `OTEL_SERVICE_NAME`: `orders-api` e
+`orders-worker`. Abra `http://localhost:16686`, escolha um dos serviços e
+selecione um trace para visualizar o fluxo assíncrono.
+
+O Jaeger não armazena métricas. Por isso, `OTEL_METRICS_ENABLED=false` no
+Compose; a instrumentação permanece no código, mas deve ser habilitada apenas
+ao apontar `OTEL_EXPORTER_OTLP_ENDPOINT` para um Collector ou backend que aceite
+métricas OTLP, como Grafana Cloud ou SigNoz.
+
+Para conectar um coletor externo, altere `OTEL_ENABLED`,
+`OTEL_METRICS_ENABLED`, `OTEL_SERVICE_NAME` e `OTEL_EXPORTER_OTLP_ENDPOINT` nos
+dois serviços. Desabilite a telemetria com `OTEL_ENABLED=false` caso não haja
+um endpoint OTLP disponível.
+
+Os sinais emitidos incluem:
+
+- spans de requisições Gin, operações MongoDB, relay de outbox e operações
+  RabbitMQ de publicação, consumo e envio à DLQ;
+- métricas de volume e duração HTTP e de resultado das operações MongoDB,
+  RabbitMQ e outbox, quando `OTEL_METRICS_ENABLED=true`;
+- contexto W3C (`traceparent`) persistido no evento de outbox e transferido aos
+  headers AMQP. Assim, uma criação na API, a publicação pelo relay e o
+  processamento pelo worker podem ser vistos no mesmo trace. A republicação
+  para a DLQ atualiza esse contexto e preserva os demais metadados da mensagem.
+
 ## Testes
 
 Execute a suíte unitária com:
@@ -236,14 +279,12 @@ go test ./...
 ```
 
 Os testes cobrem casos de uso, mappers, handlers HTTP, adapter de repositório,
-outbox, consumer de domínio e regras puras de serialização/DLQ. As integrações
-reais com MongoDB e RabbitMQ são exercitadas ao subir o Compose e pelo
-procedimento manual da DLQ acima.
+outbox, consumer de domínio, regras puras de serialização/DLQ e propagação de
+telemetria. São somente testes unitários; MongoDB e RabbitMQ são exercitados ao
+subir o Compose e pelo procedimento manual da DLQ acima.
 
 ## Próximas evoluções
 
-1. Adicionar testes de integração com MongoDB e RabbitMQ isolados em
-   containers de teste.
-2. Finalizar o encerramento gracioso da API, aguardando requisições em curso.
-3. Revisar nomes de arquivos, funções, métodos, interfaces, structs e pastas
+1. Finalizar o encerramento gracioso da API, aguardando requisições em curso.
+2. Revisar nomes de arquivos, funções, métodos, interfaces, structs e pastas
    para manter o vocabulário do projeto coeso.

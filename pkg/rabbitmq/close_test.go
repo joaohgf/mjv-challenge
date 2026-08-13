@@ -2,8 +2,8 @@ package adapter
 
 import "testing"
 
-func TestRabbitMQCloseIsIdempotentWithoutResources(t *testing.T) {
-	rabbit := new(RabbitMQ)
+func TestClientCloseIsIdempotentWithoutResources(t *testing.T) {
+	rabbit := new(Client)
 
 	if err := rabbit.Close(); err != nil {
 		t.Fatalf("expected first empty close to succeed, got %v", err)
@@ -13,8 +13,8 @@ func TestRabbitMQCloseIsIdempotentWithoutResources(t *testing.T) {
 	}
 }
 
-func TestRabbitMQWithoutResourcesIsClosed(t *testing.T) {
-	if !new(RabbitMQ).IsClosed() {
+func TestClientWithoutResourcesIsClosed(t *testing.T) {
+	if !new(Client).IsClosed() {
 		t.Fatal("expected disconnected rabbitmq adapter to be closed")
 	}
 }

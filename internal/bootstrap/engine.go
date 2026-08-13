@@ -7,6 +7,7 @@ import (
 	"github.com/joaohgf/mjv-challenge/config"
 	repositorymodel "github.com/joaohgf/mjv-challenge/internal/outbound/repository/model"
 	mongoadapter "github.com/joaohgf/mjv-challenge/pkg/mongo"
+	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -18,6 +19,7 @@ func NewEngine(
 ) *gin.Engine {
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	engine.Use(telemetry.GinMiddleware())
 	engine.GET("/health", health)
 	engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	if mongo != nil {

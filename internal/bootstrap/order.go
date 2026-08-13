@@ -20,8 +20,8 @@ func buildOrder(
 	mongo *mongoadapter.Repository[*repositorymodel.Order],
 	settings config.Config,
 ) {
-	repository := repositoryadapter.NewRepository(mongo, &repositorymapper.OrderMapper{})
-	outbox := outboxadapter.NewStore(mongo.Collection(settings.Database.OutboxCollectionName), &repositorymapper.OrderMapper{}, settings.Queue.OutboxLease)
+	repository := repositoryadapter.NewRepository(mongo, &repositorymapper.Order{})
+	outbox := outboxadapter.NewStore(mongo.Collection(settings.Database.OutboxCollectionName), &repositorymapper.Order{}, settings.Queue.OutboxLease)
 	creator := usecase.NewCreateOrder(outboxadapter.NewCreator(mongo, repository, outbox))
 	getter := usecase.NewGetOrder(repository)
 	orderHandler := httpadapter.NewOrderHandler(&httpmapper.Order{}, &httpmapper.Order{}, creator, getter)

@@ -7,7 +7,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/joaohgf/mjv-challenge/internal/core/port"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 	"github.com/joaohgf/mjv-challenge/internal/outbound/outbox/model"
+	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -27,8 +29,8 @@ func NewStore[D, M any](collection *mongo.Collection, mapper port.Mapper[D, M], 
 func (store *Store[D, M]) Enqueue(ctx context.Context, payload D) error {
 	now := time.Now().UTC()
 	event := &model.Event[M]{
-		ID: uuid.NewString(), Payload: store.mapper.To(payload), Status: model.Pending,
-		CreatedAt: now, UpdatedAt: now,
+		ID: uuid.NewString(), Payload: store.mapper.To(payload), Status: enum.OutboxPending,
+		TraceContext: telemetry.InjectContext(ctx, nil), CreatedAt: now, UpdatedAt: now,
 	}
 	if _, err := store.collection.InsertOne(ctx, event); err != nil {
 		return fmt.Errorf("inserting outbox event: %w", err)

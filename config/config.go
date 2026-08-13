@@ -2,16 +2,19 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
 type (
 	// Config groups the runtime settings shared by the API and worker.
 	Config struct {
-		HTTPAddr    string
-		SwaggerHost string
-		Database    *Database
-		Queue       *Queue
+		HTTPAddr            string
+		HTTPShutdownTimeout time.Duration
+		SwaggerHost         string
+		Database            *Database
+		Queue               *Queue
+		Telemetry           *Telemetry
 	}
 	// Database identifies the MongoDB server, database and collection.
 	Database struct {
@@ -29,16 +32,36 @@ type (
 		PublishTimeout      time.Duration
 		OutboxLease         time.Duration
 		OutboxRetryInterval time.Duration
+		OutboxMaxAttempts   int
+	}
+	// Telemetry configures optional OpenTelemetry export for this process.
+	Telemetry struct {
+		Enabled        bool
+		MetricsEnabled bool
+		ServiceName    string
+		Endpoint       string
 	}
 )
 
 // Load reads all application settings, using local defaults when unset.
 func Load() Config {
 	return Config{
-		HTTPAddr:    value("HTTP_ADDR", ":8080"),
-		SwaggerHost: value("SWAGGER_HOST", "localhost:8080"),
-		Queue:       LoadQueue(),
-		Database:    LoadDatabase(),
+		HTTPAddr:            value("HTTP_ADDR", ":8080"),
+		HTTPShutdownTimeout: duration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
+		SwaggerHost:         value("SWAGGER_HOST", "localhost:8080"),
+		Queue:               LoadQueue(),
+		Database:            LoadDatabase(),
+		Telemetry:           LoadTelemetry(),
+	}
+}
+
+// LoadTelemetry returns the OTLP exporter settings for the current process.
+func LoadTelemetry() *Telemetry {
+	return &Telemetry{
+		Enabled:        enabled("OTEL_ENABLED"),
+		MetricsEnabled: enabled("OTEL_METRICS_ENABLED"),
+		ServiceName:    value("OTEL_SERVICE_NAME", "mjv-challenge"),
+		Endpoint:       value("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
 	}
 }
 
@@ -68,4 +91,10 @@ func duration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return value
+}
+
+// enabled reads a boolean environment value and returns false for invalid input.
+func enabled(key string) bool {
+	value, err := strconv.ParseBool(os.Getenv(key))
+	return err == nil && value
 }

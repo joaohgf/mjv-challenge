@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestToPublishingPreservesMessageAndAddsFailureReason(t *testing.T) {
 		CorrelationId: "correlation-1", Timestamp: createdAt,
 	}
 
-	published := toPublishing(delivery, errors.New("processing failed"))
+	published := toPublishing(context.Background(), delivery, errors.New("processing failed"))
 
 	if string(published.Body) != "payload" || published.Headers["trace-id"] != "trace-1" {
 		t.Fatalf("expected preserved delivery, got %#v", published)

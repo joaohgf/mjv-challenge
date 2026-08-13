@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/joaohgf/mjv-challenge/config"
 	docs "github.com/joaohgf/mjv-challenge/docs"
 	"github.com/joaohgf/mjv-challenge/internal/bootstrap"
 	repositorymodel "github.com/joaohgf/mjv-challenge/internal/outbound/repository/model"
 	mongoadapter "github.com/joaohgf/mjv-challenge/pkg/mongo"
+	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 )
 
 // @title MJV Challenge API
@@ -20,7 +23,9 @@ import (
 // @BasePath /
 // main reports a startup or server failure after the API stops.
 func main() {
-	if err := run(context.Background()); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
 		slog.Error("api stopped unexpectedly", "error", err)
 		os.Exit(1)
 	}
@@ -30,18 +35,21 @@ func main() {
 func run(ctx context.Context) error {
 	settings := config.Load()
 	docs.SwaggerInfo.Host = settings.SwaggerHost
+	shutdownTelemetry, err := telemetry.Start(ctx, settings.Telemetry)
+	if err != nil {
+		return fmt.Errorf("starting telemetry: %w", err)
+	}
+	defer telemetry.Close(context.Background(), shutdownTelemetry)
 	mongo := mongoadapter.NewRepository[*repositorymodel.Order](settings.Database)
 	if err := mongo.Connect(ctx); err != nil {
 		return fmt.Errorf("connecting mongodb: %w", err)
 	}
-	defer closeMongo(ctx, mongo)
+	defer closeMongo(context.Background(), mongo)
 	slog.Info("mongodb connected", "database", settings.Database.MongoDatabase)
-	server := bootstrap.NewEngine(mongo, settings)
+	engine := bootstrap.NewEngine(mongo, settings)
+	server := newServer(settings.HTTPAddr, engine)
 	slog.Info("api started", "address", settings.HTTPAddr)
-	if err := server.Run(settings.HTTPAddr); err != nil {
-		return fmt.Errorf("running api server: %w", err)
-	}
-	return nil
+	return serve(ctx, server, settings.HTTPShutdownTimeout)
 }
 
 // closeMongo logs shutdown failures without masking the original API error.

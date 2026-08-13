@@ -18,6 +18,7 @@ import (
 	repositorymodel "github.com/joaohgf/mjv-challenge/internal/outbound/repository/model"
 	mongoadapter "github.com/joaohgf/mjv-challenge/pkg/mongo"
 	rabbitadapter "github.com/joaohgf/mjv-challenge/pkg/rabbitmq"
+	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 )
 
 // main reports an unexpected worker stop after run returns.
@@ -33,14 +34,18 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	settings := config.Load()
+	shutdownTelemetry, err := telemetry.Start(ctx, settings.Telemetry)
+	if err != nil {
+		return fmt.Errorf("starting telemetry: %w", err)
+	}
+	defer telemetry.Close(ctx, shutdownTelemetry)
 	mongo := mongoadapter.NewRepository[*repositorymodel.Order](settings.Database)
 	if err := mongo.Connect(ctx); err != nil {
 		return fmt.Errorf("connecting mongodb: %w", err)
 	}
 	defer closeMongo(context.Background(), mongo)
 	slog.Info("mongodb connected", "database", settings.Database.MongoDatabase)
-	repository := repositoryadapter.NewRepository(mongo, &repositorymapper.OrderMapper{})
-	if err := startRelay(ctx, mongo, repository, settings); err != nil {
+	if err := startOutboxRelay(ctx, mongo, settings); err != nil {
 		return err
 	}
 	consumer := rabbitadapter.NewConsumer[*consumerdto.Message[*consumerdto.Order]](settings.Queue)
@@ -49,6 +54,7 @@ func run() error {
 	}
 	defer closeRabbit(consumer)
 	slog.Info("worker started", "queue", settings.Queue.Name)
+	repository := repositoryadapter.NewRepository(mongo, &repositorymapper.Order{})
 	updateOrder := usecase.NewUpdateOrder(repository)
 	handler := consumeradapter.NewConsumer(consumer, &consumermapper.Order{}, updateOrder)
 	if err := handler.Consume(ctx); err != nil && ctx.Err() == nil {

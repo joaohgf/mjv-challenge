@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/joaohgf/mjv-challenge/internal/core/domain"
-	"github.com/joaohgf/mjv-challenge/internal/core/enum"
 	"github.com/joaohgf/mjv-challenge/internal/core/port"
+	"github.com/joaohgf/mjv-challenge/internal/enum"
 )
 
 // CreateOrder initializes a new order before its transactional persistence.
