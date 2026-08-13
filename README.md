@@ -13,8 +13,8 @@ flowchart LR
     Queue --> Worker["Worker Go"]
     Worker --> Mongo
     Worker -. falha .-> DLQ["RabbitMQ: orders.dlq"]
-    API -. traces .-> Jaeger["Jaeger"]
-    Worker -. traces .-> Jaeger
+    API -. traces opcionais .-> Jaeger["Jaeger"]
+    Worker -. traces opcionais .-> Jaeger
     Swagger["Swagger UI"] --> API
     MongoExpress["Mongo Express"] --> Mongo
 ```
@@ -56,6 +56,10 @@ da outbox. Portanto, com o atraso obrigatório de dois segundos, quatro réplica
 processam aproximadamente dois pedidos por segundo. O claim atômico e o lease
 da outbox coordenam os relays sem concorrência sobre o mesmo evento.
 
+A API permanece com uma réplica, exposta em `localhost:8080`. O Compose atual
+não a escala porque essa porta é publicada diretamente no host; portanto, os
+testes de carga medem a capacidade de uma única API e de um MongoDB local.
+
 Os comandos de carga aplicam `WORKER_REPLICAS` automaticamente antes de iniciar
 o k6. Os perfis `sustainable` e `saturation` também ajustam sua taxa: o primeiro
 envia uma requisição a cada três segundos por réplica; o segundo envia duas por
@@ -96,10 +100,10 @@ make rebuild
 | `make ps` | Exibe o estado dos containers e interfaces. |
 | `make swagger` | Regenera os arquivos em `docs/`. |
 | `make deps` | Baixa dependências Go para a primeira execução local. |
-| `make load-smoke` | Executa um pedido completo pelo k6. |
-| `make load-sustainable` | Executa carga estável, abaixo da capacidade do worker. |
-| `make load-saturation` | Executa carga acima da capacidade, para observar acúmulo. |
-| `make load-stress` | Eleva a escrita até 1.000 pedidos/s para encontrar o limite da API. |
+| `make load-smoke` | Escala workers e executa um pedido completo pelo k6. |
+| `make load-sustainable` | Escala workers e executa carga estável. |
+| `make load-saturation` | Escala workers e executa carga para observar acúmulo. |
+| `make load-stress` | Escala workers e eleva a escrita até 1.000 pedidos/s. |
 
 As dependências Go não são versionadas. Execute `make deps` antes da primeira
 execução local; a imagem Docker usa o cache de módulos do BuildKit para evitar
@@ -338,7 +342,8 @@ imagem `grafana/k6:2.1.0` pelo
 e consulta cada `id` até `PROCESSADO`, registrando separadamente o tempo de
 aceitação do `POST` e o tempo de processamento assíncrono.
 
-Suba primeiro o stack base e execute um perfil:
+Suba primeiro o stack base. Os comandos de carga apenas ajustam a quantidade
+de workers; eles não criam a API:
 
 ```bash
 make up
@@ -348,31 +353,38 @@ make load-saturation
 make load-stress
 ```
 
+O perfil `smoke` e os demais cenários realizam antes um pedido de aquecimento
+que precisa chegar a `PROCESSADO`. Isso evita medir a inicialização de Mongo,
+RabbitMQ, worker e outbox como erro de carga.
+
 O perfil `sustainable` envia um pedido a cada três segundos por réplica, abaixo
 da capacidade aproximada do worker (`prefetch=1` e dois segundos por pedido).
 O perfil `saturation` envia duas requisições por segundo por réplica; é esperado
 que forme fila, por isso ele valida a aceitação HTTP, mas não exige que todos os
-pedidos terminem dentro do timeout. Todos os perfis validam que a API esteja saudável
-e executam um pedido de aquecimento até `PROCESSADO` antes de iniciar, evitando
-medir a subida de worker e outbox como falha da carga. Cada pedido do cenário
-tem até 20 segundos para processar; o aquecimento tem até 45 segundos. Os
-perfis retornam falha quando seus thresholds não são atendidos.
+pedidos terminem dentro do timeout. Cada pedido do cenário tem até 20 segundos
+para processar; o aquecimento tem até 45 segundos. Os perfis retornam falha
+quando seus thresholds não são atendidos.
 
 O perfil `stress` é propositalmente agressivo: sobe de 100 para 250, 500 e
 1.000 pedidos por segundo, mantendo o pico por 30 segundos. Ele mede somente
-a escrita e não espera o worker, pois a capacidade deste é deliberadamente
-menor e formará backlog. Para aumentar o teto sem alterar o script, por
-exemplo para 2.000 pedidos/s, execute:
+a escrita durante as iterações e não espera cada pedido ser processado, pois a
+capacidade do worker é deliberadamente menor e formará backlog. Ainda assim,
+seu aquecimento inicial exige um processamento completo. Em uma fila antiga ou
+com poucas réplicas, esse passo pode exceder o timeout padrão do k6; use um
+ambiente limpo ou aumente `WORKER_REPLICAS` antes de executar o stress.
+
+Para aumentar o teto sem alterar o script, por exemplo para 2.000 pedidos/s,
+execute:
 
 ```bash
-make load-stress STRESS_PEAK=2000
+make load-stress WORKER_REPLICAS=4 STRESS_PEAK=2000
 ```
 
 Os pedidos de carga são persistidos no MongoDB e podem permanecer em `orders`
 ou `outbox`; execute-os apenas em ambiente local de teste. O container k6 é
-efêmero e não expõe portas nem faz parte do `make up`.
+efêmero, não expõe portas e não faz parte do `make up`. Para zerar o ambiente
+de carga, interrompa o stack e remova os volumes:
 
-## Próximas evoluções
-
-1. Revisar nomes de arquivos, funções, métodos, interfaces, structs e pastas
-   para manter o vocabulário do projeto coeso.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.interfaces.yml down -v --remove-orphans
+```
