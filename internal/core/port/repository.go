@@ -10,9 +10,9 @@ type (
 		GetID() string
 		GetIDField() string
 	}
-	// Repository persists a value and returns the stored representation.
-	Repository[D any] interface {
-		Save(context.Context, D) (D, error)
+	// PersistentCreator inserts a new value without replacing an existing one.
+	PersistentCreator[D any] interface {
+		Create(context.Context, D) (D, error)
 	}
 	// PersistentUpdater replaces an existing value without creating a new one.
 	PersistentUpdater[D any] interface {
@@ -22,9 +22,9 @@ type (
 	Getter[D any] interface {
 		Get(context.Context, string) (D, error)
 	}
-	// Store combines the read and write operations required by an order repository.
+	// Store combines the persistence operations required by an order repository.
 	Store[D any] interface {
-		Repository[D]
+		PersistentCreator[D]
 		PersistentUpdater[D]
 		Getter[D]
 	}

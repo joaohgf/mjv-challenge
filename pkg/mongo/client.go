@@ -21,18 +21,13 @@ func NewRepository[M port.Identifiable](config *config.Database) *Repository[M] 
 	return &Repository[M]{config: config}
 }
 
-// Connect opens the MongoDB client and creates the unique application ID index.
+// Connect opens the MongoDB client after Docker initializes the database schema.
 func (repository *Repository[M]) Connect(ctx context.Context) error {
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(repository.config.MongoDBURI))
 	if err != nil {
 		return fmt.Errorf("connect to mongodb: %w", err)
 	}
 	repository.client = client
-	if err := repository.ensureUniqueIDIndex(ctx); err != nil {
-		_ = client.Disconnect(ctx)
-		repository.client = nil
-		return fmt.Errorf("creating mongodb identifier index: %w", err)
-	}
 	return nil
 }
 

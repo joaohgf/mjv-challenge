@@ -32,6 +32,6 @@ func (handler *OrderHandler) Create(context *gin.Context) {
 		context.JSON(http.StatusInternalServerError, errs.NewRequestError("failed to create order"))
 		return
 	}
-	slog.Info("order created", "order_id", created.ID)
+	slog.Debug("order created", "order_id", created.ID)
 	context.JSON(http.StatusCreated, handler.fromMapper.From(created))
 }

@@ -21,22 +21,51 @@ flowchart LR
 
 ## Serviços e infraestrutura
 
-O [docker-compose.yml](docker-compose.yml) inicia sete serviços de aplicação e apoio.
-Todos possuem valores fixados no Compose; não há necessidade de `.env`.
+O [docker-compose.yml](docker-compose.yml) inicia somente o fluxo obrigatório.
+As interfaces locais ficam no
+[docker-compose.interfaces.yml](docker-compose.interfaces.yml), para que não
+consumam recursos durante uma execução normal. Todos os valores estão fixados
+no Compose; não há necessidade de `.env`.
 
-| Serviço | Porta | Responsabilidade |
-| --- | --- | --- |
-| `api` | `8080` | Expõe HTTP, Swagger e cria pedidos com eventos de outbox. |
-| `worker` | — | Publica a outbox, consome `orders` e atualiza o processamento. |
-| `rabbitmq` | `5672`, `15672` | Mensageria e painel de administração. |
-| `mongo` | `27017` | Armazena os documentos de `orders` e `outbox`. |
-| `mongo-init` | — | Inicializa o replica set `rs0` exigido por transações. |
-| `mongo-express` | `8081` | Visualização dos documentos do MongoDB. |
-| `jaeger` | `16686` | Recebe telemetria OTLP e permite explorar traces. |
+| Serviço | Compose | Porta | Responsabilidade |
+| --- | --- | --- | --- |
+| `api` | base | `8080` | Expõe HTTP, Swagger e cria pedidos com eventos de outbox. |
+| `worker` | base | — | Publica a outbox, consome `orders` e atualiza o processamento. |
+| `rabbitmq` | base | — | Mensageria; portas locais no compose de interfaces. |
+| `mongo` | base | — | Armazena `orders` e `outbox`; porta local no compose de interfaces. |
+| `mongo-init` | base | — | Inicializa o replica set `rs0` e os índices de `orders` e `outbox`. |
+| `mongo-express` | interfaces | `8081` | Visualização dos documentos do MongoDB. |
+| `jaeger` | interfaces | `16686` | Recebe telemetria OTLP e permite explorar traces. |
 
 API e worker aguardam a inicialização do replica set; o worker também aguarda
 o healthcheck do RabbitMQ. Os dados e a chave interna do MongoDB ficam nos
 volumes nomeados `mongo-data` e `mongo-config`, preservados entre recriações.
+`make up-interfaces` ativa a exportação de traces e pode recriar API e worker
+para aplicar essa configuração.
+
+Por padrão há uma réplica de worker. Para processar mensagens em paralelo,
+suba o stack já escalado ou altere-o em execução:
+
+```bash
+make up WORKER_REPLICAS=4
+make scale-workers WORKER_REPLICAS=4
+```
+
+Cada réplica possui seu próprio consumer com `prefetch=1` e seu próprio relay
+da outbox. Portanto, com o atraso obrigatório de dois segundos, quatro réplicas
+processam aproximadamente dois pedidos por segundo. O claim atômico e o lease
+da outbox coordenam os relays sem concorrência sobre o mesmo evento.
+
+Os comandos de carga aplicam `WORKER_REPLICAS` automaticamente antes de iniciar
+o k6. Os perfis `sustainable` e `saturation` também ajustam sua taxa: o primeiro
+envia uma requisição a cada três segundos por réplica; o segundo envia duas por
+segundo por réplica. Por exemplo:
+
+```bash
+make load-sustainable WORKER_REPLICAS=4
+make load-saturation WORKER_REPLICAS=4
+```
+
 Ao receber `SIGTERM` ou `SIGINT`, a API deixa de aceitar conexões e aguarda até
 `HTTP_SHUTDOWN_TIMEOUT` (`10s`) por requisições em andamento. O Compose reserva
 `15s` antes de forçar o encerramento do container.
@@ -58,20 +87,26 @@ make rebuild
 | Comando | Efeito |
 | --- | --- |
 | `make build` | Constrói as imagens da API e do worker. |
-| `make up` | Inicia imagens já construídas em segundo plano. |
-| `make rebuild` | Reconstrói e inicia todos os serviços. |
-| `make down` | Para os containers; o volume do MongoDB é preservado. |
-| `make logs` | Acompanha os logs de todos os serviços. |
-| `make ps` | Exibe o estado dos containers. |
+| `make up` | Inicia apenas a aplicação e suas dependências obrigatórias. |
+| `make rebuild` | Reconstrói e inicia o stack base. |
+| `make up-interfaces` | Inicia o stack com Jaeger, Mongo Express e portas locais de Mongo/RabbitMQ. |
+| `make scale-workers WORKER_REPLICAS=N` | Ajusta a quantidade de réplicas do worker em execução. |
+| `make down` | Para os containers, inclusive interfaces; os volumes são preservados. |
+| `make logs` | Acompanha os logs do stack e das interfaces quando ativas. |
+| `make ps` | Exibe o estado dos containers e interfaces. |
 | `make swagger` | Regenera os arquivos em `docs/`. |
 | `make deps` | Baixa dependências Go para a primeira execução local. |
+| `make load-smoke` | Executa um pedido completo pelo k6. |
+| `make load-sustainable` | Executa carga estável, abaixo da capacidade do worker. |
+| `make load-saturation` | Executa carga acima da capacidade, para observar acúmulo. |
+| `make load-stress` | Eleva a escrita até 1.000 pedidos/s para encontrar o limite da API. |
 
 As dependências Go não são versionadas. Execute `make deps` antes da primeira
 execução local; a imagem Docker usa o cache de módulos do BuildKit para evitar
 novos downloads enquanto `go.mod` e `go.sum` não mudarem. O Dockerfile cria um
 binário estático em Alpine e executa-o com um usuário sem privilégios.
 
-Endereços locais:
+Endereços locais com `make up-interfaces`:
 
 - API: `http://localhost:8080`
 - Swagger UI: `http://localhost:8080/swagger/index.html`
@@ -108,21 +143,24 @@ retornam `400` antes de qualquer persistência ou publicação. O corpo contém
 ```
 
 O documento retorna `id`, `status`, `created_at` e `updated_at`. A criação usa
-o status `CRIADO`; o worker registra `PROCESSANDO` e, após concluir, salva
-`PROCESSADO`, atualizando `updated_at` em cada transição. Os saves no MongoDB
-usam `ReplaceOne` com `upsert` por `order_id`, para não criar outro documento ao
-processar novamente uma mensagem.
-Na criação, a tentativa de escrita no MongoDB usa timeout de cinco segundos,
-evitando que a API fique aguardando uma conexão indisponível indefinidamente.
-O valor é configurado no Compose por `MONGODB_SAVE_TIMEOUT` (`5s`).
+o status `CRIADO`; o worker registra `PROCESSANDO`, aguarda dois segundos e,
+após concluir, salva `PROCESSADO`, atualizando `updated_at` em cada transição.
+A criação usa `InsertOne` e o índice único de `order_id`; as transições usam
+`ReplaceOne` sem `upsert`, portanto uma mensagem reprocessada não cria outro
+documento.
+Na criação, toda a transação MongoDB tem timeout de cinco segundos — sessão,
+gravação do pedido, inserção da outbox e commit — evitando que a API aguarde
+uma conexão indisponível indefinidamente. O valor é configurado no Compose por
+`MONGODB_SAVE_TIMEOUT` (`5s`).
 
 Na persistência, o mapper converte o domínio para os campos requeridos pelo
 desafio: `order_id`, `product`, `quantity`, `status` e `created_at`, além de
 `updatedAt` para registrar a última alteração. Essa representação é isolada em
 `internal/outbound/repository/model` e não altera o contrato HTTP.
-O índice único é parcial para permitir que volumes locais com documentos legados
-inicializem; migre ou recrie esses documentos caso precise consultá-los pelo
-novo `order_id`.
+Os índices pertencem ao schema Docker em [`mongo/init.js`](mongo/init.js),
+executado pelo serviço `mongo-init` antes de API e worker. Há índice único
+parcial de `order_id` para compatibilidade com documentos legados, índice único
+de `event_id` e índices compostos para busca e recuperação de leases da outbox.
 
 ## Transactional outbox
 
@@ -190,7 +228,7 @@ infraestrutura, mas o fluxo normal usa a republicação explícita descrita acim
 
 ### Testar a DLQ manualmente
 
-Com os serviços ativos, publique JSON inválido em `orders`:
+Com `make up-interfaces` ativo, publique JSON inválido em `orders`:
 
 ```bash
 curl -u app:app \
@@ -243,9 +281,9 @@ de pedido, seus mappers, adapters e casos de uso.
 
 ## Telemetria
 
-A telemetria usa OpenTelemetry e está habilitada no Compose. API e worker
-enviam traces via OTLP gRPC para o Jaeger no endereço `jaeger:4317`. Os nomes
-dos serviços são definidos por `OTEL_SERVICE_NAME`: `orders-api` e
+A telemetria usa OpenTelemetry e é habilitada por `make up-interfaces`. API e
+worker enviam traces via OTLP gRPC para o Jaeger no endereço `jaeger:4317`.
+Os nomes dos serviços são definidos por `OTEL_SERVICE_NAME`: `orders-api` e
 `orders-worker`. Abra `http://localhost:16686`, escolha um dos serviços e
 selecione um trace para visualizar o fluxo assíncrono.
 
@@ -278,13 +316,63 @@ Execute a suíte unitária com:
 go test ./...
 ```
 
+Para medir a cobertura do código unitariamente testável:
+
+```bash
+make coverage
+```
+
 Os testes cobrem casos de uso, mappers, handlers HTTP, adapter de repositório,
 outbox, consumer de domínio, regras puras de serialização/DLQ e propagação de
 telemetria. São somente testes unitários; MongoDB e RabbitMQ são exercitados ao
-subir o Compose e pelo procedimento manual da DLQ acima.
+subir o Compose e pelo procedimento manual da DLQ acima. O alvo exclui os
+drivers e adapters que acessam MongoDB ou RabbitMQ, os pontos de composição em
+`cmd/` e o Swagger gerado em `docs/`; na última execução, a cobertura desse
+escopo foi **88,2%**, acima do mínimo de 80%.
+
+## Teste de carga
+
+O cenário versionado em [`tests/load/orders.js`](tests/load/orders.js) usa a
+imagem `grafana/k6:2.1.0` pelo
+[docker-compose.load.yml](docker-compose.load.yml). Ele cria pedidos por HTTP
+e consulta cada `id` até `PROCESSADO`, registrando separadamente o tempo de
+aceitação do `POST` e o tempo de processamento assíncrono.
+
+Suba primeiro o stack base e execute um perfil:
+
+```bash
+make up
+make load-smoke
+make load-sustainable
+make load-saturation
+make load-stress
+```
+
+O perfil `sustainable` envia um pedido a cada três segundos por réplica, abaixo
+da capacidade aproximada do worker (`prefetch=1` e dois segundos por pedido).
+O perfil `saturation` envia duas requisições por segundo por réplica; é esperado
+que forme fila, por isso ele valida a aceitação HTTP, mas não exige que todos os
+pedidos terminem dentro do timeout. Todos os perfis validam que a API esteja saudável
+e executam um pedido de aquecimento até `PROCESSADO` antes de iniciar, evitando
+medir a subida de worker e outbox como falha da carga. Cada pedido do cenário
+tem até 20 segundos para processar; o aquecimento tem até 45 segundos. Os
+perfis retornam falha quando seus thresholds não são atendidos.
+
+O perfil `stress` é propositalmente agressivo: sobe de 100 para 250, 500 e
+1.000 pedidos por segundo, mantendo o pico por 30 segundos. Ele mede somente
+a escrita e não espera o worker, pois a capacidade deste é deliberadamente
+menor e formará backlog. Para aumentar o teto sem alterar o script, por
+exemplo para 2.000 pedidos/s, execute:
+
+```bash
+make load-stress STRESS_PEAK=2000
+```
+
+Os pedidos de carga são persistidos no MongoDB e podem permanecer em `orders`
+ou `outbox`; execute-os apenas em ambiente local de teste. O container k6 é
+efêmero e não expõe portas nem faz parte do `make up`.
 
 ## Próximas evoluções
 
-1. Finalizar o encerramento gracioso da API, aguardando requisições em curso.
-2. Revisar nomes de arquivos, funções, métodos, interfaces, structs e pastas
+1. Revisar nomes de arquivos, funções, métodos, interfaces, structs e pastas
    para manter o vocabulário do projeto coeso.

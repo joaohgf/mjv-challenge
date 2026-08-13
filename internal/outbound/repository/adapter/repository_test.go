@@ -11,7 +11,7 @@ type (
 	modelStub   struct{ ID string }
 	mapperStub  struct{}
 	storageStub struct {
-		saved   *modelStub
+		created *modelStub
 		updated *modelStub
 		err     error
 	}
@@ -25,8 +25,8 @@ func (mapperStub) To(domain *domainStub) *modelStub { return &modelStub{ID: doma
 
 func (mapperStub) From(model *modelStub) *domainStub { return &domainStub{ID: model.ID} }
 
-func (storage *storageStub) Save(_ context.Context, model *modelStub) (*modelStub, error) {
-	storage.saved = model
+func (storage *storageStub) Create(_ context.Context, model *modelStub) (*modelStub, error) {
+	storage.created = model
 	return model, storage.err
 }
 
@@ -42,7 +42,7 @@ func (storage *storageStub) Get(_ context.Context, id string) (*modelStub, error
 func TestRepositoryWrapsStoreError(t *testing.T) {
 	repository := NewRepository[*domainStub, *modelStub](&storageStub{err: errors.New("unavailable")}, mapperStub{})
 
-	_, err := repository.Save(context.Background(), &domainStub{ID: "order-1"})
+	_, err := repository.Create(context.Background(), &domainStub{ID: "order-1"})
 
 	if err == nil {
 		t.Fatal("expected store error")
@@ -53,10 +53,10 @@ func TestRepositoryMapsAtRepositoryBoundary(t *testing.T) {
 	storage := new(storageStub)
 	repository := NewRepository[*domainStub, *modelStub](storage, mapperStub{})
 
-	result, err := repository.Save(context.Background(), &domainStub{ID: "order-1"})
+	result, err := repository.Create(context.Background(), &domainStub{ID: "order-1"})
 
-	if err != nil || storage.saved.ID != "order-1" || result.ID != "order-1" {
-		t.Fatalf("expected mapped repository save, got err=%v saved=%#v result=%#v", err, storage.saved, result)
+	if err != nil || storage.created.ID != "order-1" || result.ID != "order-1" {
+		t.Fatalf("expected mapped repository creation, got err=%v created=%#v result=%#v", err, storage.created, result)
 	}
 }
 

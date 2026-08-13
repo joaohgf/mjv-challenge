@@ -30,3 +30,9 @@ func TestOrderUsesRequiredMongoDocumentFields(t *testing.T) {
 		t.Fatalf("expected order identifier metadata, got field=%q id=%q", source.GetIDField(), source.GetID())
 	}
 }
+
+func TestNewOrderCreatesEmptyDocument(t *testing.T) {
+	if order := NewOrder(); order == nil || order.ID != "" {
+		t.Fatalf("expected an empty order document, got %#v", order)
+	}
+}

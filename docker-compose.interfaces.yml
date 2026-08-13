@@ -1,0 +1,50 @@
+services:
+  # Turns on traces only when the local observability interface is requested.
+  api:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  worker:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  # Exposes broker and database ports for local inspection tools.
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  mongo:
+    ports:
+      - "27017:27017"
+
+  # Jaeger receives OTLP traces and provides the trace exploration UI.
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  # Mongo Express is a development-only UI for MongoDB documents.
+  mongo-express:
+    image: mongo-express:1.0.2-20-alpine3.19
+    environment:
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root
+      ME_CONFIG_MONGODB_ADMINPASSWORD: root
+      ME_CONFIG_MONGODB_URL: mongodb://root:root@mongo:27017/
+    ports:
+      - "8081:8081"
+    depends_on:
+      mongo:
+        condition: service_healthy

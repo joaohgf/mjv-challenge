@@ -36,11 +36,11 @@ func (handler *Consumer) Consume(ctx context.Context) error {
 
 // update maps a message payload and advances the corresponding order state.
 func (handler *Consumer) update(ctx context.Context, message *dto.Message[*dto.Order]) error {
-	slog.Info("processing order message", "message_id", message.ID)
+	slog.Debug("processing order message", "message_id", message.ID)
 	order := handler.mapper.To(message.Payload)
 	_, err := handler.usecase.Update(ctx, order)
 	if err == nil {
-		slog.Info("order processed", "order_id", order.ID)
+		slog.Debug("order processed", "order_id", order.ID)
 	}
 	return err
 }

@@ -27,7 +27,7 @@ func (stub transactionStub) Transaction(ctx context.Context, operation func(cont
 	return operation(ctx)
 }
 
-func (stub *orderStoreStub) Save(_ context.Context, order *domain.Order) (*domain.Order, error) {
+func (stub *orderStoreStub) Create(_ context.Context, order *domain.Order) (*domain.Order, error) {
 	stub.saved = order
 	return order, stub.err
 }
@@ -44,7 +44,7 @@ func (stub *outboxStoreStub) MarkPublished(context.Context, string) error    { r
 func (stub *outboxStoreStub) MarkDeadLettered(context.Context, string) error { return nil }
 func (stub *outboxStoreStub) Release(context.Context, string) error          { return nil }
 
-func TestCreatorSavesAndEnqueuesWithinTransaction(t *testing.T) {
+func TestCreatorCreatesAndEnqueuesWithinTransaction(t *testing.T) {
 	orders := new(orderStoreStub)
 	outbox := new(outboxStoreStub)
 	order := &domain.Order{ID: "order-1"}
@@ -52,17 +52,17 @@ func TestCreatorSavesAndEnqueuesWithinTransaction(t *testing.T) {
 	created, err := NewCreator(transactionStub{}, orders, outbox).Create(context.Background(), order)
 
 	if err != nil || created != order || orders.saved != order || outbox.enqueued != order {
-		t.Fatalf("expected transactional save and enqueue, got err=%v", err)
+		t.Fatalf("expected transactional creation and enqueue, got err=%v", err)
 	}
 }
 
-func TestCreatorDoesNotEnqueueWhenSavingFails(t *testing.T) {
+func TestCreatorDoesNotEnqueueWhenCreationFails(t *testing.T) {
 	orders := &orderStoreStub{err: errors.New("database unavailable")}
 	outbox := new(outboxStoreStub)
 
 	_, err := NewCreator(transactionStub{}, orders, outbox).Create(context.Background(), &domain.Order{})
 
 	if err == nil || outbox.enqueued != nil {
-		t.Fatalf("expected save error without enqueue, got err=%v outbox=%#v", err, outbox)
+		t.Fatalf("expected creation error without enqueue, got err=%v outbox=%#v", err, outbox)
 	}
 }

@@ -1,0 +1,14 @@
+services:
+  # k6 runs only on demand and reaches the API through the Compose network.
+  k6:
+    image: grafana/k6:2.1.0
+    environment:
+      BASE_URL: http://api:8080
+      PROCESSING_TIMEOUT_SECONDS: 20
+      READINESS_TIMEOUT_SECONDS: 45
+    volumes:
+      - ./tests/load:/scripts:ro
+    command: run /scripts/orders.js
+    depends_on:
+      api:
+        condition: service_started

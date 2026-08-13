@@ -18,11 +18,11 @@ func NewRepository[D any, M port.Identifiable](store port.Store[M], mapper port.
 	return &Repository[D, M]{store: store, mapper: mapper}
 }
 
-// Save maps the domain value before storing it and maps the result back.
-func (repository *Repository[D, M]) Save(ctx context.Context, source D) (D, error) {
-	model, err := repository.store.Save(ctx, repository.mapper.To(source))
+// Create maps and inserts a new domain value before mapping it back.
+func (repository *Repository[D, M]) Create(ctx context.Context, source D) (D, error) {
+	model, err := repository.store.Create(ctx, repository.mapper.To(source))
 	if err != nil {
-		return source, fmt.Errorf("saving repository model: %w", err)
+		return source, fmt.Errorf("creating repository model: %w", err)
 	}
 	return repository.mapper.From(model), nil
 }

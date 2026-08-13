@@ -9,6 +9,8 @@ import (
 
 // Transaction runs an operation atomically using the repository MongoDB client.
 func (repository *Repository[M]) Transaction(ctx context.Context, operation func(context.Context) error) error {
+	ctx, cancel := repository.withSaveTimeout(ctx)
+	defer cancel()
 	session, err := repository.client.StartSession()
 	if err != nil {
 		return fmt.Errorf("starting mongodb session: %w", err)

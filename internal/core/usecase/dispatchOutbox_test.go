@@ -113,3 +113,14 @@ func TestDispatchOutboxParksEventAfterFiveFailedAttempts(t *testing.T) {
 		t.Fatalf("expected parked event, got dispatched=%t err=%v outbox=%#v", dispatched, err, outbox)
 	}
 }
+
+func TestDispatchOutboxParksEventPastAttemptLimit(t *testing.T) {
+	outbox := &outboxStub{event: &domain.OutboxEvent[string]{ID: "event-1", Payload: "order-1", Attempts: 6}}
+	publisher, deadLetter := new(publisherStub), new(publisherStub)
+
+	dispatched, err := NewDispatchOutbox(outbox, publisher, deadLetter, 5).Dispatch(context.Background())
+
+	if err != nil || !dispatched || publisher.message != "" || deadLetter.cause == nil || outbox.deadLettered != "event-1" {
+		t.Fatalf("expected event parked without publishing, got dispatched=%t err=%v outbox=%#v", dispatched, err, outbox)
+	}
+}

@@ -8,25 +8,24 @@ import (
 	errs "github.com/joaohgf/mjv-challenge/internal/core/error"
 	"github.com/joaohgf/mjv-challenge/pkg/telemetry"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Save upserts a document using its business ID instead of creating duplicates.
-func (repository *Repository[M]) Save(ctx context.Context, model M) (modelResult M, err error) {
-	ctx, span := telemetry.StartSpan(ctx, "mongodb.save", trace.SpanKindClient)
+// Create inserts a new document and relies on its unique business ID index.
+func (repository *Repository[M]) Create(ctx context.Context, model M) (modelResult M, err error) {
+	ctx, span := telemetry.StartSpan(ctx, "mongodb.create", trace.SpanKindClient)
 	defer func() {
-		telemetry.RecordOperation(ctx, "mongodb", "save", err)
+		telemetry.RecordOperation(ctx, "mongodb", "create", err)
 		telemetry.End(span, err)
 	}()
 	if model.GetID() == "" {
-		return model, fmt.Errorf("saving mongo document: identifier is required")
+		return model, fmt.Errorf("creating mongo document: identifier is required")
 	}
-	ctx, cancel := context.WithTimeout(ctx, repository.config.SaveTimeout)
+	ctx, cancel := repository.withSaveTimeout(ctx)
 	defer cancel()
-	_, err = repository.collection().ReplaceOne(ctx, repository.filter(model.GetID()), model, options.Replace().SetUpsert(true))
+	_, err = repository.collection().InsertOne(ctx, model)
 	if err != nil {
-		return model, fmt.Errorf("upsert mongo document: %w", err)
+		return model, fmt.Errorf("inserting mongo document: %w", err)
 	}
 	return model, nil
 }

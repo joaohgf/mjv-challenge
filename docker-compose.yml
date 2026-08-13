@@ -15,10 +15,9 @@ services:
       MONGO_COLLECTION_NAME: orders
       MONGO_OUTBOX_COLLECTION_NAME: outbox
       MONGODB_SAVE_TIMEOUT: 5s
-      OTEL_ENABLED: "true"
+      OTEL_ENABLED: "false"
       OTEL_METRICS_ENABLED: "false"
       OTEL_SERVICE_NAME: orders-api
-      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
     ports:
       - "8080:8080"
     depends_on:
@@ -26,8 +25,6 @@ services:
         condition: service_healthy
       mongo-init:
         condition: service_completed_successfully
-      jaeger:
-        condition: service_started
 
   # Worker consumes one order at a time and persists processing transitions.
   worker:
@@ -49,10 +46,9 @@ services:
       OUTBOX_LEASE_DURATION: 15s
       OUTBOX_RETRY_INTERVAL: 1s
       OUTBOX_MAX_ATTEMPTS: 5
-      OTEL_ENABLED: "true"
+      OTEL_ENABLED: "false"
       OTEL_METRICS_ENABLED: "false"
       OTEL_SERVICE_NAME: orders-worker
-      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
     depends_on:
       mongo:
         condition: service_healthy
@@ -60,16 +56,6 @@ services:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
-      jaeger:
-        condition: service_started
-
-  # Jaeger receives local OTLP data and exposes the trace exploration UI.
-  jaeger:
-    image: jaegertracing/all-in-one:1.76.0
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    ports:
-      - "16686:16686"
 
   # Definitions create queues before application containers connect.
   rabbitmq:
@@ -77,9 +63,6 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: app
       RABBITMQ_DEFAULT_PASS: app
-    ports:
-      - "5672:5672"
-      - "15672:15672"
     volumes:
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
@@ -97,8 +80,6 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: root
-    ports:
-      - "27017:27017"
     volumes:
       - mongo-data:/data/db
       # Preserves the replica set internal-authentication key between restarts.
@@ -118,25 +99,12 @@ services:
       - -c
       - >-
         mongosh --host mongo:27017 -u root -p root --authenticationDatabase admin --quiet
-        --eval 'try { rs.status() } catch (error) { rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo:27017"}]}) }; while (!db.hello().isWritablePrimary) { sleep(100) }'
+        --file /scripts/init.js
     depends_on:
       mongo:
         condition: service_healthy
-
-  # Development-only visual inspection of MongoDB documents.
-  mongo-express:
-    image: mongo-express:1.0.2-20-alpine3.19
-    environment:
-      ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: admin
-      ME_CONFIG_MONGODB_ADMINUSERNAME: root
-      ME_CONFIG_MONGODB_ADMINPASSWORD: root
-      ME_CONFIG_MONGODB_URL: mongodb://root:root@mongo:27017/
-    ports:
-      - "8081:8081"
-    depends_on:
-      mongo:
-        condition: service_healthy
+    volumes:
+      - ./mongo/init.js:/scripts/init.js:ro
 
 volumes:
   mongo-data:

@@ -32,6 +32,6 @@ func (handler *OrderHandler) Get(context *gin.Context) {
 		context.JSON(http.StatusInternalServerError, errs.NewRequestError("failed to get order"))
 		return
 	}
-	slog.Info("order retrieved", "order_id", id)
+	slog.Debug("order retrieved", "order_id", id)
 	context.JSON(http.StatusOK, handler.fromMapper.From(order))
 }
